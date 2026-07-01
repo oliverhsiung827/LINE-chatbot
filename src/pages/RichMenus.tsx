@@ -163,6 +163,7 @@ export default function RichMenus() {
         size_height: menu.size_height,
         areas: [],
         is_default: 0,
+        is_selected: 0,
         status: 'draft',
         created_at: new Date().toISOString(),
       },
@@ -193,9 +194,12 @@ export default function RichMenus() {
             ) : (
               <div className="mb-3 flex h-32 w-full items-center justify-center rounded bg-slate-100 text-xs text-slate-400">尚未上傳圖片</div>
             )}
-            <div className="mb-2 flex items-center justify-between">
+            <div className="mb-2 flex flex-wrap items-center justify-between gap-1">
               <h4 className="font-semibold text-slate-800">{m.name}</h4>
-              {m.is_default ? <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-xs text-emerald-700">預設選單</span> : null}
+              <div className="flex gap-1">
+                {m.is_default ? <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-xs text-emerald-700">預設選單</span> : null}
+                {m.is_selected ? <span className="rounded-full bg-blue-100 px-2 py-0.5 text-xs text-blue-700">預設展開</span> : null}
+              </div>
             </div>
             <p className="mb-3 text-xs text-slate-500">
               {STATUS_LABEL[m.status]} · {m.size_width}x{m.size_height} · {m.areas.length} 個區塊
@@ -259,6 +263,7 @@ function RichMenuForm({
 }) {
   const [name, setName] = useState(menu?.name ?? '')
   const [chatBarText, setChatBarText] = useState(menu?.chat_bar_text ?? '選單')
+  const [selected, setSelected] = useState(!!menu?.is_selected)
   const [sizeWidth, setSizeWidth] = useState(menu?.size_width ?? SIZE_PRESETS[0].width)
   const [sizeHeight, setSizeHeight] = useState(menu?.size_height ?? SIZE_PRESETS[0].height)
   const [areas, setAreas] = useState<RichMenuArea[]>(menu?.areas ?? [])
@@ -313,10 +318,11 @@ function RichMenuForm({
           sizeWidth,
           sizeHeight,
           areas,
+          selected,
         })
         id = created.id
       } else {
-        await api.patch(`/rich-menus/${id}`, { name, chatBarText, areas })
+        await api.patch(`/rich-menus/${id}`, { name, chatBarText, areas, selected })
       }
       if (file) {
         const form = new FormData()
@@ -343,6 +349,10 @@ function RichMenuForm({
         <label className="block">
           <span className="mb-1 block text-slate-600">聊天室選單列文字</span>
           <input value={chatBarText} onChange={(e) => setChatBarText(e.target.value)} className="w-full rounded-md border border-slate-300 px-2 py-1.5" />
+        </label>
+        <label className="flex items-center gap-2 text-slate-700">
+          <input type="checkbox" checked={selected} onChange={(e) => setSelected(e.target.checked)} />
+          使用者點進聊天室時，預設展開這個選單（否則需要點一下選單列才會展開）
         </label>
 
         {!menu && (

@@ -57,6 +57,7 @@ interface RichMenuRow {
   size_height: number
   areas: string
   is_default: number
+  is_selected: number
   status: string
   created_at: string
 }
@@ -72,6 +73,7 @@ function toResponse(row: RichMenuRow) {
     size_height: row.size_height,
     areas: JSON.parse(row.areas),
     is_default: row.is_default,
+    is_selected: row.is_selected,
     status: row.status,
     created_at: row.created_at,
   }
@@ -84,12 +86,13 @@ richMenuRoutes.get('/', async (c) => {
 
 richMenuRoutes.post('/', async (c) => {
   const body = await c.req.json().catch(() => ({}))
-  const { name, chatBarText, sizeWidth, sizeHeight, areas } = body as {
+  const { name, chatBarText, sizeWidth, sizeHeight, areas, selected } = body as {
     name?: string
     chatBarText?: string
     sizeWidth?: number
     sizeHeight?: number
     areas?: unknown[]
+    selected?: boolean
   }
   if (!name?.trim()) return c.json({ error: '請輸入選單名稱' }, 400)
   if (areas?.length) {
@@ -98,10 +101,10 @@ richMenuRoutes.post('/', async (c) => {
   }
   const id = newId()
   await c.env.DB.prepare(
-    `INSERT INTO rich_menus (id, name, chat_bar_text, size_width, size_height, areas, status)
-     VALUES (?, ?, ?, ?, ?, ?, 'draft')`
+    `INSERT INTO rich_menus (id, name, chat_bar_text, size_width, size_height, areas, is_selected, status)
+     VALUES (?, ?, ?, ?, ?, ?, ?, 'draft')`
   )
-    .bind(id, name.trim(), chatBarText ?? '選單', sizeWidth ?? 2500, sizeHeight ?? 1686, JSON.stringify(areas ?? []))
+    .bind(id, name.trim(), chatBarText ?? '選單', sizeWidth ?? 2500, sizeHeight ?? 1686, JSON.stringify(areas ?? []), selected ? 1 : 0)
     .run()
   return c.json({ id }, 201)
 })
@@ -111,15 +114,20 @@ richMenuRoutes.patch('/:id', async (c) => {
   const existing = await c.env.DB.prepare('SELECT * FROM rich_menus WHERE id = ?').bind(id).first()
   if (!existing) return c.json({ error: '找不到選單' }, 404)
   const body = await c.req.json().catch(() => ({}))
-  const { name, chatBarText, areas } = body as { name?: string; chatBarText?: string; areas?: unknown[] }
+  const { name, chatBarText, areas, selected } = body as {
+    name?: string
+    chatBarText?: string
+    areas?: unknown[]
+    selected?: boolean
+  }
   if (areas?.length) {
     const err = validateAreas(areas)
     if (err) return c.json({ error: err }, 400)
   }
   await c.env.DB.prepare(
-    `UPDATE rich_menus SET name = COALESCE(?, name), chat_bar_text = COALESCE(?, chat_bar_text), areas = COALESCE(?, areas) WHERE id = ?`
+    `UPDATE rich_menus SET name = COALESCE(?, name), chat_bar_text = COALESCE(?, chat_bar_text), areas = COALESCE(?, areas), is_selected = COALESCE(?, is_selected) WHERE id = ?`
   )
-    .bind(name ?? null, chatBarText ?? null, areas ? JSON.stringify(areas) : null, id)
+    .bind(name ?? null, chatBarText ?? null, areas ? JSON.stringify(areas) : null, selected === undefined ? null : selected ? 1 : 0, id)
     .run()
   return c.json({ ok: true })
 })
@@ -178,7 +186,7 @@ richMenuRoutes.post('/:id/publish', async (c) => {
   try {
     const created = await line.createRichMenu({
       size: { width: row.size_width, height: row.size_height },
-      selected: false,
+      selected: !!row.is_selected,
       name: row.name,
       chatBarText: row.chat_bar_text,
       areas: lineAreas,

@@ -137,6 +137,7 @@ export interface RichMenu {
   size_height: number
   areas: RichMenuArea[]
   is_default: number
+  is_selected: number
   status: RichMenuStatus
   created_at: string
 }
