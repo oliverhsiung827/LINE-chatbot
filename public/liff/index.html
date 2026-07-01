@@ -26,11 +26,27 @@
       ;(async function () {
         const statusEl = document.getElementById('status')
         const params = new URLSearchParams(location.search)
-        const clickToken = params.get('t')
-        const joinId = params.get('j')
+        let clickToken = params.get('t')
+        let joinId = params.get('j')
+
+        // liff.state 包住的參數要等 LINE/LIFF 處理過才會展開成真正的 query string，
+        // 但頁面剛載入時網址上可能還是原始的 ?liff.state=... 形式，所以這裡自己先解一次，
+        // 不依賴 LINE 一定會在載入前就展開好
+        if (!clickToken && !joinId) {
+          const rawState = params.get('liff.state')
+          if (rawState) {
+            const decoded = new URLSearchParams(rawState)
+            clickToken = decoded.get('t')
+            joinId = decoded.get('j')
+          }
+        }
 
         if (!clickToken && !joinId) {
-          statusEl.textContent = '缺少必要參數'
+          statusEl.textContent = '缺少必要參數（除錯用，請截圖回報）'
+          const debugEl = document.createElement('p')
+          debugEl.style.cssText = 'margin-top:12px;font-size:11px;color:#94a3b8;word-break:break-all;font-family:monospace;'
+          debugEl.textContent = location.href
+          statusEl.after(debugEl)
           return
         }
 
