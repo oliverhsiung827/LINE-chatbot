@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { Link } from 'react-router-dom'
 import { api } from '../lib/api'
 import type { LineUser, Tag } from '../../shared/types'
 import Modal from '../components/Modal'
@@ -18,7 +19,6 @@ export default function Members() {
   const [total, setTotal] = useState(0)
   const [page, setPage] = useState(1)
   const [selected, setSelected] = useState<LineUser | null>(null)
-  const [showTagManager, setShowTagManager] = useState(false)
 
   async function loadTags() {
     setTags(await api.get<Tag[]>('/tags'))
@@ -52,12 +52,12 @@ export default function Members() {
     <div>
       <div className="mb-6 flex items-center justify-between">
         <h2 className="text-xl font-bold text-slate-800">會員管理</h2>
-        <button
-          onClick={() => setShowTagManager(true)}
+        <Link
+          to="/tags"
           className="rounded-md border border-slate-300 px-3 py-1.5 text-sm text-slate-600 hover:bg-slate-100"
         >
           管理標籤
-        </button>
+        </Link>
       </div>
 
       <div className="mb-4 flex gap-3">
@@ -166,17 +166,6 @@ export default function Members() {
           }}
         />
       )}
-
-      {showTagManager && (
-        <TagManager
-          tags={tags}
-          onClose={() => setShowTagManager(false)}
-          onChanged={() => {
-            loadTags()
-            loadMembers()
-          }}
-        />
-      )}
     </div>
   )
 }
@@ -250,51 +239,3 @@ function MemberDetail({
   )
 }
 
-function TagManager({ tags, onClose, onChanged }: { tags: Tag[]; onClose: () => void; onChanged: () => void }) {
-  const [name, setName] = useState('')
-  const [color, setColor] = useState('#3B82F6')
-
-  async function createTag() {
-    if (!name.trim()) return
-    await api.post('/tags', { name: name.trim(), color })
-    setName('')
-    onChanged()
-  }
-
-  async function deleteTag(id: number) {
-    if (!confirm('確定要刪除此標籤嗎？')) return
-    await api.delete(`/tags/${id}`)
-    onChanged()
-  }
-
-  return (
-    <Modal title="標籤管理" onClose={onClose}>
-      <div className="mb-4 flex gap-2">
-        <input
-          value={name}
-          onChange={(e) => setName(e.target.value)}
-          placeholder="新標籤名稱"
-          className="flex-1 rounded-md border border-slate-300 px-2 py-1.5 text-sm"
-        />
-        <input type="color" value={color} onChange={(e) => setColor(e.target.value)} className="h-9 w-9 rounded" />
-        <button onClick={createTag} className="rounded-md bg-emerald-600 px-3 py-1.5 text-sm text-white hover:bg-emerald-700">
-          新增
-        </button>
-      </div>
-      <ul className="space-y-2 text-sm">
-        {tags.map((t) => (
-          <li key={t.id} className="flex items-center justify-between rounded-md border border-slate-200 px-3 py-2">
-            <span className="flex items-center gap-2">
-              <span className="h-3 w-3 rounded-full" style={{ backgroundColor: t.color }} />
-              {t.name}
-              <span className="text-xs text-slate-400">（{t.member_count ?? 0} 人）</span>
-            </span>
-            <button onClick={() => deleteTag(t.id)} className="text-red-500 hover:underline">
-              刪除
-            </button>
-          </li>
-        ))}
-      </ul>
-    </Modal>
-  )
-}
