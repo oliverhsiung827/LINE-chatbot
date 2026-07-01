@@ -14,6 +14,8 @@
         margin: 0;
         color: #64748b;
         font-size: 14px;
+        text-align: center;
+        padding: 0 24px;
       }
     </style>
   </head>
@@ -24,8 +26,10 @@
       ;(async function () {
         const statusEl = document.getElementById('status')
         const params = new URLSearchParams(location.search)
-        const token = params.get('t')
-        if (!token) {
+        const clickToken = params.get('t')
+        const joinId = params.get('j')
+
+        if (!clickToken && !joinId) {
           statusEl.textContent = '缺少必要參數'
           return
         }
@@ -34,47 +38,71 @@
           location.replace(url)
         }
 
-        let targetUrl = null
-        try {
-          const res = await fetch('/api/click-targets/' + encodeURIComponent(token))
-          if (res.ok) {
-            const data = await res.json()
-            targetUrl = data.target_url
-          }
-        } catch (e) {
-          // 網路錯誤時仍嘗試往下走，讓使用者至少看到錯誤訊息而不是空白頁
-        }
-
-        if (!targetUrl) {
-          statusEl.textContent = '找不到這個連結，請聯絡管理員'
-          return
-        }
-
-        // 追蹤點擊 + 貼標籤：失敗也不能卡住使用者，最多等 1.5 秒就直接導向
+        let config = null
         try {
           const configRes = await fetch('/api/liff-config')
-          const config = configRes.ok ? await configRes.json() : null
-          if (config && config.liffId && window.liff) {
+          config = configRes.ok ? await configRes.json() : null
+        } catch (e) {
+          // 忽略，config 保持 null
+        }
+
+        async function withLiffIdToken(callback) {
+          if (!config || !config.liffId || !window.liff) return
+          try {
             await liff.init({ liffId: config.liffId })
             if (liff.isLoggedIn()) {
               const idToken = liff.getIDToken()
-              if (idToken) {
-                await Promise.race([
-                  fetch('/api/click-targets/' + encodeURIComponent(token) + '/track', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ idToken: idToken }),
-                  }),
-                  new Promise((resolve) => setTimeout(resolve, 1500)),
-                ])
-              }
+              if (idToken) await callback(idToken)
             }
+          } catch (e) {
+            // 追蹤/貼標失敗不能卡住使用者
           }
-        } catch (e) {
-          // 追蹤失敗不影響導向
         }
 
-        redirect(targetUrl)
+        if (clickToken) {
+          let targetUrl = null
+          try {
+            const res = await fetch('/api/click-targets/' + encodeURIComponent(clickToken))
+            if (res.ok) targetUrl = (await res.json()).target_url
+          } catch (e) {
+            // ignore
+          }
+          if (!targetUrl) {
+            statusEl.textContent = '找不到這個連結，請聯絡管理員'
+            return
+          }
+
+          await Promise.race([
+            withLiffIdToken((idToken) =>
+              fetch('/api/click-targets/' + encodeURIComponent(clickToken) + '/track', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ idToken: idToken }),
+              })
+            ),
+            new Promise((resolve) => setTimeout(resolve, 1500)),
+          ])
+
+          redirect(targetUrl)
+          return
+        }
+
+        // 會員來源追蹤（加入好友）模式：LIFF 若設定「Add friend option: On」，
+        // liff.init() 過程中就會自動顯示加好友提示（若使用者尚未是好友）
+        statusEl.textContent = '正在為您完成加入流程...'
+        await withLiffIdToken((idToken) =>
+          fetch('/api/join-links/' + encodeURIComponent(joinId) + '/track', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ idToken: idToken }),
+          })
+        )
+
+        if (config && config.basicId) {
+          redirect('https://line.me/R/oaMessage/' + config.basicId + '/')
+        } else {
+          statusEl.textContent = '歡迎加入！'
+        }
       })()
     </script>
   </body>

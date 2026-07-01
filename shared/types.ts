@@ -167,6 +167,15 @@ export interface Broadcast {
   created_at: string
 }
 
+export interface JoinLink {
+  id: string
+  name: string
+  tag_id: number | null
+  tag_name?: string | null
+  join_count: number
+  created_at: string
+}
+
 export interface DashboardStats {
   total_members: number
   new_members_7d: number

@@ -11,15 +11,9 @@ import type {
   Tag,
 } from '../../shared/types'
 import Modal from '../components/Modal'
+import { type Bounds, type Template, templatesForSize } from '../lib/gridTemplates'
 
 const TYPE_LABEL: Record<RichMessageType, string> = { imagemap: '圖文／影片訊息', flex_carousel: '多頁訊息' }
-
-interface Bounds {
-  x: number
-  y: number
-  width: number
-  height: number
-}
 
 export default function RichMessages() {
   const [items, setItems] = useState<RichMessage[]>([])
@@ -202,6 +196,10 @@ function ImagemapEditor({
   function removeAction(i: number) {
     setActions((prev) => prev.filter((_, idx) => idx !== i))
   }
+  function applyTemplate(t: Template) {
+    if (actions.length > 0 && !confirm('套用範本會取代目前的區塊設定，確定要繼續嗎？')) return
+    setActions(t.build(width, height).map((area) => ({ type: 'message', area, text: '' })))
+  }
 
   async function save() {
     setError(null)
@@ -291,6 +289,21 @@ function ImagemapEditor({
           <span className="mb-1 block text-slate-600">底圖（建議 {width}x{height} px）</span>
           <input type="file" accept="image/*" onChange={(e) => handleBaseFile(e.target.files?.[0] ?? null)} className="w-full text-xs" />
         </label>
+
+        <div>
+          <span className="mb-2 block text-slate-600">分割範本（點擊套用，可再手動微調）</span>
+          <div className="flex flex-wrap gap-2">
+            {templatesForSize(width, height).map((t) => (
+              <button
+                key={t.label}
+                onClick={() => applyTemplate(t)}
+                className="rounded border border-slate-300 px-2 py-1 text-xs hover:bg-slate-50"
+              >
+                {t.label}
+              </button>
+            ))}
+          </div>
+        </div>
 
         <div>
           <span className="mb-2 block text-slate-600">即時預覽</span>

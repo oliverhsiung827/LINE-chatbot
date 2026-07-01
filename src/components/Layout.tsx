@@ -5,6 +5,7 @@ const NAV_ITEMS = [
   { to: '/', label: '儀表板', end: true },
   { to: '/members', label: '會員管理' },
   { to: '/tags', label: '標籤管理' },
+  { to: '/join-links', label: '會員來源追蹤' },
   { to: '/keywords', label: '關鍵字自動回覆' },
   { to: '/rich-menus', label: '圖文選單' },
   { to: '/rich-messages', label: '進階訊息素材庫' },

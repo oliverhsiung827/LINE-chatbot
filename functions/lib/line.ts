@@ -106,6 +106,11 @@ export function createLineClient(channelAccessToken: string) {
       return res.json()
     },
 
+    async getBotInfo(): Promise<{ basicId: string; displayName: string }> {
+      const res = await callLineApi(channelAccessToken, '/info', { method: 'GET' })
+      return res.json()
+    },
+
     async createRichMenu(menu: {
       size: { width: number; height: number }
       selected: boolean

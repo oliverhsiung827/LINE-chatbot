@@ -2,92 +2,13 @@ import { useEffect, useState } from 'react'
 import { api, ApiRequestError } from '../lib/api'
 import type { RichMenu, RichMenuArea, Tag } from '../../shared/types'
 import Modal from '../components/Modal'
+import { type Bounds, type Template, templatesForSize } from '../lib/gridTemplates'
 
 const STATUS_LABEL: Record<string, string> = { draft: '草稿', published: '已發佈' }
 
 const SIZE_PRESETS = [
   { label: '大尺寸（2500 x 1686）', width: 2500, height: 1686 },
   { label: '小尺寸（2500 x 843）', width: 2500, height: 843 },
-]
-
-interface Bounds {
-  x: number
-  y: number
-  width: number
-  height: number
-}
-
-function distribute(total: number, parts: number): number[] {
-  const base = Math.floor(total / parts)
-  const remainder = total - base * parts
-  return Array.from({ length: parts }, (_, i) => base + (i < remainder ? 1 : 0))
-}
-
-function buildGrid(width: number, height: number, cols: number, rows: number): Bounds[] {
-  const colWidths = distribute(width, cols)
-  const rowHeights = distribute(height, rows)
-  const areas: Bounds[] = []
-  let y = 0
-  for (let r = 0; r < rows; r++) {
-    let x = 0
-    for (let c = 0; c < cols; c++) {
-      areas.push({ x, y, width: colWidths[c], height: rowHeights[r] })
-      x += colWidths[c]
-    }
-    y += rowHeights[r]
-  }
-  return areas
-}
-
-function topFullBottomSplit(width: number, height: number, bottomCount: number): Bounds[] {
-  const topHeight = Math.round(height / 2)
-  const bottomHeight = height - topHeight
-  const bottomWidths = distribute(width, bottomCount)
-  const areas: Bounds[] = [{ x: 0, y: 0, width, height: topHeight }]
-  let x = 0
-  for (const w of bottomWidths) {
-    areas.push({ x, y: topHeight, width: w, height: bottomHeight })
-    x += w
-  }
-  return areas
-}
-
-function bottomFullTopSplit(width: number, height: number, topCount: number): Bounds[] {
-  const bottomHeight = Math.round(height / 2)
-  const topHeight = height - bottomHeight
-  const topWidths = distribute(width, topCount)
-  const areas: Bounds[] = []
-  let x = 0
-  for (const w of topWidths) {
-    areas.push({ x, y: 0, width: w, height: topHeight })
-    x += w
-  }
-  areas.push({ x: 0, y: topHeight, width, height: bottomHeight })
-  return areas
-}
-
-interface Template {
-  label: string
-  build: (width: number, height: number) => Bounds[]
-}
-
-const LARGE_TEMPLATES: Template[] = [
-  { label: '整張（1 個區塊）', build: (w, h) => buildGrid(w, h, 1, 1) },
-  { label: '左右各半（2 欄）', build: (w, h) => buildGrid(w, h, 2, 1) },
-  { label: '上下各半（2 列）', build: (w, h) => buildGrid(w, h, 1, 2) },
-  { label: '三欄並排', build: (w, h) => buildGrid(w, h, 3, 1) },
-  { label: '2 x 2 九宮格', build: (w, h) => buildGrid(w, h, 2, 2) },
-  { label: '2 列 x 3 欄', build: (w, h) => buildGrid(w, h, 3, 2) },
-  { label: '上 1 大 + 下 2 小', build: (w, h) => topFullBottomSplit(w, h, 2) },
-  { label: '上 2 小 + 下 1 大', build: (w, h) => bottomFullTopSplit(w, h, 2) },
-  { label: '上 1 大 + 下 3 小', build: (w, h) => topFullBottomSplit(w, h, 3) },
-]
-
-const COMPACT_TEMPLATES: Template[] = [
-  { label: '整張（1 個區塊）', build: (w, h) => buildGrid(w, h, 1, 1) },
-  { label: '左右各半（2 欄）', build: (w, h) => buildGrid(w, h, 2, 1) },
-  { label: '三欄並排', build: (w, h) => buildGrid(w, h, 3, 1) },
-  { label: '四欄並排', build: (w, h) => buildGrid(w, h, 4, 1) },
 ]
 
 function defaultAreaFor(bounds: Bounds): RichMenuArea {
@@ -277,7 +198,7 @@ function RichMenuForm({
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
-  const templates = sizeHeight <= 900 ? COMPACT_TEMPLATES : LARGE_TEMPLATES
+  const templates = templatesForSize(sizeWidth, sizeHeight)
   const otherMenus = allMenus.filter((m) => m.id !== menu?.id)
 
   function handleFileChange(f: File | null) {
