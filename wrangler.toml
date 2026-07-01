@@ -1,0 +1,25 @@
+name = "line-chatbot-platform"
+compatibility_date = "2024-11-01"
+pages_build_output_dir = "dist"
+
+# D1 資料庫 binding。建立方式：
+#   wrangler d1 create line-chatbot-db
+# 建立後將回傳的 database_id 貼到下方。
+[[d1_databases]]
+binding = "DB"
+database_name = "line-chatbot-db"
+database_id = "REPLACE_WITH_D1_DATABASE_ID"
+
+# R2 儲存桶，用來放圖文選單圖片、上傳素材等。建立方式：
+#   wrangler r2 bucket create line-chatbot-assets
+[[r2_buckets]]
+binding = "MEDIA"
+bucket_name = "line-chatbot-assets"
+
+# 以下皆為機密值，請勿寫在這個檔案，改用：
+#   wrangler pages secret put LINE_CHANNEL_ACCESS_TOKEN
+#   wrangler pages secret put LINE_CHANNEL_SECRET
+#   wrangler pages secret put JWT_SECRET
+#   wrangler pages secret put ADMIN_INIT_EMAIL
+#   wrangler pages secret put ADMIN_INIT_PASSWORD
+# 或在 Cloudflare Pages 專案設定的 Environment Variables 內新增

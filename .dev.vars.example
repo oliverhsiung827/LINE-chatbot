@@ -1,0 +1,5 @@
+LINE_CHANNEL_ACCESS_TOKEN=your-line-channel-access-token
+LINE_CHANNEL_SECRET=your-line-channel-secret
+JWT_SECRET=replace-with-a-long-random-string
+ADMIN_INIT_EMAIL=admin@example.com
+ADMIN_INIT_PASSWORD=change-me-on-first-login
