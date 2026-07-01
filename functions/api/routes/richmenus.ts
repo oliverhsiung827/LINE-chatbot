@@ -3,16 +3,29 @@ import type { Env } from '../../lib/env'
 import { requireAuth, type AuthVariables } from '../middleware/auth'
 import { createLineClient, LineApiError } from '../../lib/line'
 import { newId } from '../../lib/crypto'
+import { encodePostbackData, materializeUriAction, resolveUriForSend } from '../../lib/clickTracking'
 
 export const richMenuRoutes = new Hono<{ Bindings: Env; Variables: AuthVariables }>()
 richMenuRoutes.use('*', requireAuth)
 
 interface RichMenuAreaAction {
-  type?: string
+  type: string
   text?: string
   uri?: string
   data?: string
   richMenuAliasId?: string
+  tag_id?: number
+  click_target_id?: string
+}
+
+async function materializeAreas(env: Env, areas: unknown): Promise<unknown> {
+  if (!Array.isArray(areas)) return areas
+  return Promise.all(
+    areas.map(async (area: { bounds: unknown; action: RichMenuAreaAction }) => ({
+      ...area,
+      action: await materializeUriAction(env, area.action),
+    }))
+  )
 }
 
 function validateAreas(areas: unknown): string | null {
@@ -100,11 +113,12 @@ richMenuRoutes.post('/', async (c) => {
     if (err) return c.json({ error: err }, 400)
   }
   const id = newId()
+  const materializedAreas = areas?.length ? await materializeAreas(c.env, areas) : (areas ?? [])
   await c.env.DB.prepare(
     `INSERT INTO rich_menus (id, name, chat_bar_text, size_width, size_height, areas, is_selected, status)
      VALUES (?, ?, ?, ?, ?, ?, ?, 'draft')`
   )
-    .bind(id, name.trim(), chatBarText ?? '選單', sizeWidth ?? 2500, sizeHeight ?? 1686, JSON.stringify(areas ?? []), selected ? 1 : 0)
+    .bind(id, name.trim(), chatBarText ?? '選單', sizeWidth ?? 2500, sizeHeight ?? 1686, JSON.stringify(materializedAreas), selected ? 1 : 0)
     .run()
   return c.json({ id }, 201)
 })
@@ -124,10 +138,11 @@ richMenuRoutes.patch('/:id', async (c) => {
     const err = validateAreas(areas)
     if (err) return c.json({ error: err }, 400)
   }
+  const materializedAreas = areas?.length ? await materializeAreas(c.env, areas) : undefined
   await c.env.DB.prepare(
     `UPDATE rich_menus SET name = COALESCE(?, name), chat_bar_text = COALESCE(?, chat_bar_text), areas = COALESCE(?, areas), is_selected = COALESCE(?, is_selected) WHERE id = ?`
   )
-    .bind(name ?? null, chatBarText ?? null, areas ? JSON.stringify(areas) : null, selected === undefined ? null : selected ? 1 : 0, id)
+    .bind(name ?? null, chatBarText ?? null, materializedAreas ? JSON.stringify(materializedAreas) : null, selected === undefined ? null : selected ? 1 : 0, id)
     .run()
   return c.json({ ok: true })
 })
@@ -173,11 +188,18 @@ richMenuRoutes.post('/:id/publish', async (c) => {
   // LINE 的 richMenuAliasId 限制在 32 字元以內，不能直接用含連字號的 UUID（36 碼），
   // 所以送給 LINE 時一律去除連字號（正好變成 32 碼的 16 進位字串）
   const toAliasId = (localId: string) => localId.replace(/-/g, '')
-  const lineAreas = areas.map((area: { action: { type: string; richMenuAliasId?: string } }) =>
-    area.action.type === 'richmenuswitch' && area.action.richMenuAliasId
-      ? { ...area, action: { ...area.action, richMenuAliasId: toAliasId(area.action.richMenuAliasId) } }
-      : area
-  )
+  const lineAreas = areas.map((area: { action: RichMenuAreaAction }) => {
+    if (area.action.type === 'richmenuswitch' && area.action.richMenuAliasId) {
+      return { ...area, action: { ...area.action, richMenuAliasId: toAliasId(area.action.richMenuAliasId) } }
+    }
+    if (area.action.type === 'uri') {
+      return { ...area, action: { ...area.action, uri: resolveUriForSend(c.env, area.action) } }
+    }
+    if (area.action.type === 'postback') {
+      return { ...area, action: { ...area.action, data: encodePostbackData(area.action.data ?? '', area.action.tag_id) } }
+    }
+    return area
+  })
 
   const line = createLineClient(c.env.LINE_CHANNEL_ACCESS_TOKEN)
   const previousLineRichMenuId = row.line_rich_menu_id

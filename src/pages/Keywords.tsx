@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { api } from '../lib/api'
-import type { KeywordRule, MatchType, ReplyType, RichMessage, RichMessageRefContent } from '../../shared/types'
+import type { KeywordRule, MatchType, ReplyType, RichMessage, RichMessageRefContent, Tag } from '../../shared/types'
 import Modal from '../components/Modal'
 
 const MATCH_LABEL: Record<MatchType, string> = { exact: '完全符合', contains: '包含關鍵字', regex: '正規表示式' }
@@ -8,6 +8,7 @@ const REPLY_LABEL: Record<ReplyType, string> = { text: '文字', image: '圖片'
 
 export default function Keywords() {
   const [rules, setRules] = useState<KeywordRule[]>([])
+  const [tags, setTags] = useState<Tag[]>([])
   const [editing, setEditing] = useState<KeywordRule | 'new' | null>(null)
 
   async function load() {
@@ -16,6 +17,7 @@ export default function Keywords() {
 
   useEffect(() => {
     load()
+    api.get<Tag[]>('/tags').then(setTags)
   }, [])
 
   async function toggleActive(rule: KeywordRule) {
@@ -46,6 +48,7 @@ export default function Keywords() {
               <th className="px-4 py-2">比對方式</th>
               <th className="px-4 py-2">關鍵字</th>
               <th className="px-4 py-2">回覆類型</th>
+              <th className="px-4 py-2">貼標籤</th>
               <th className="px-4 py-2">狀態</th>
               <th className="px-4 py-2" />
             </tr>
@@ -53,7 +56,7 @@ export default function Keywords() {
           <tbody>
             {rules.length === 0 && (
               <tr>
-                <td colSpan={6} className="px-4 py-6 text-center text-slate-400">
+                <td colSpan={7} className="px-4 py-6 text-center text-slate-400">
                   尚無自動回覆規則
                 </td>
               </tr>
@@ -64,6 +67,7 @@ export default function Keywords() {
                 <td className="px-4 py-2">{MATCH_LABEL[r.match_type]}</td>
                 <td className="px-4 py-2 text-slate-500">{r.keywords.join('、')}</td>
                 <td className="px-4 py-2">{REPLY_LABEL[r.reply_type]}</td>
+                <td className="px-4 py-2 text-slate-500">{tags.find((t) => t.id === r.tag_id)?.name ?? '-'}</td>
                 <td className="px-4 py-2">
                   <button onClick={() => toggleActive(r)} className={r.is_active ? 'text-emerald-600' : 'text-slate-400'}>
                     {r.is_active ? '啟用中' : '已停用'}
@@ -111,12 +115,15 @@ function KeywordForm({ rule, onClose, onSaved }: { rule: KeywordRule | null; onC
   )
   const [imagemaps, setImagemaps] = useState<RichMessage[]>([])
   const [carousels, setCarousels] = useState<RichMessage[]>([])
+  const [tags, setTags] = useState<Tag[]>([])
+  const [tagId, setTagId] = useState(rule?.tag_id ?? '')
   const [priority, setPriority] = useState(rule?.priority ?? 0)
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
     api.get<RichMessage[]>('/rich-messages?type=imagemap').then(setImagemaps)
     api.get<RichMessage[]>('/rich-messages?type=flex_carousel').then(setCarousels)
+    api.get<Tag[]>('/tags').then(setTags)
   }, [])
 
   async function save() {
@@ -139,7 +146,15 @@ function KeywordForm({ rule, onClose, onSaved }: { rule: KeywordRule | null; onC
     else if (replyType === 'imagemap' || replyType === 'flex') reply_content = { rich_message_id: richMessageId }
     else reply_content = { text }
 
-    const payload = { name, match_type: matchType, keywords: keywordList, reply_type: replyType, reply_content, priority }
+    const payload = {
+      name,
+      match_type: matchType,
+      keywords: keywordList,
+      reply_type: replyType,
+      reply_content,
+      priority,
+      tag_id: tagId ? Number(tagId) : null,
+    }
     if (rule) await api.patch(`/keywords/${rule.id}`, payload)
     else await api.post('/keywords', payload)
     onSaved()
@@ -207,6 +222,17 @@ function KeywordForm({ rule, onClose, onSaved }: { rule: KeywordRule | null; onC
         <label className="block">
           <span className="mb-1 block text-slate-600">優先權（數字越大越優先比對）</span>
           <input type="number" value={priority} onChange={(e) => setPriority(Number(e.target.value))} className="w-full rounded-md border border-slate-300 px-2 py-1.5" />
+        </label>
+        <label className="block">
+          <span className="mb-1 block text-slate-600">命中規則時貼標籤（選填，可用於後續分眾行銷）</span>
+          <select value={tagId} onChange={(e) => setTagId(e.target.value ? Number(e.target.value) : '')} className="w-full rounded-md border border-slate-300 px-2 py-1.5">
+            <option value="">不貼標籤</option>
+            {tags.map((t) => (
+              <option key={t.id} value={t.id}>
+                {t.name}
+              </option>
+            ))}
+          </select>
         </label>
         <div className="flex justify-end gap-2 pt-2">
           <button onClick={onClose} className="rounded-md border border-slate-300 px-3 py-1.5 text-slate-600">

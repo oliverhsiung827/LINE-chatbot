@@ -10,6 +10,7 @@ import { broadcastRoutes } from './routes/broadcasts'
 import { dashboardRoutes } from './routes/dashboard'
 import { richMessageRoutes } from './routes/richMessages'
 import { richMessageAssetRoutes } from './routes/richMessageAssets'
+import { clickTargetRoutes } from './routes/clickTargets'
 
 export const app = new Hono<{ Bindings: Env; Variables: AuthVariables }>().basePath('/api')
 
@@ -22,6 +23,9 @@ app.route('/broadcasts', broadcastRoutes)
 app.route('/dashboard', dashboardRoutes)
 app.route('/rich-messages', richMessageRoutes)
 app.route('/rm-assets', richMessageAssetRoutes)
+app.route('/click-targets', clickTargetRoutes)
+
+app.get('/liff-config', (c) => c.json({ liffId: c.env.LIFF_ID ?? null }))
 
 app.notFound((c) => c.json({ error: 'Not Found' }, 404))
 app.onError((err, c) => {

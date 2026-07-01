@@ -1,5 +1,7 @@
+import type { Env } from './env'
 import type { LineMessage } from './line'
 import type { FlexCarouselContent, ImagemapContent } from '../../shared/types'
+import { encodePostbackData, resolveUriForSend } from './clickTracking'
 
 export interface RichMessageRow {
   id: string
@@ -9,7 +11,7 @@ export interface RichMessageRow {
 
 // 把「進階訊息素材庫」裡建好的內容，轉換成實際送給 LINE 的訊息物件。
 // origin 為目前部署的網域（例如 https://xxx.pages.dev），用來組出 LINE 伺服器可直接拜訪的公開素材網址。
-export function buildLineMessage(row: RichMessageRow, origin: string): LineMessage {
+export function buildLineMessage(env: Env, row: RichMessageRow, origin: string): LineMessage {
   if (row.type === 'imagemap') {
     const c = JSON.parse(row.content) as ImagemapContent
     const message: LineMessage = {
@@ -19,7 +21,7 @@ export function buildLineMessage(row: RichMessageRow, origin: string): LineMessa
       baseSize: c.baseSize,
       actions: c.actions.map((a) =>
         a.type === 'uri'
-          ? { type: 'uri', linkUri: a.uri ?? '', area: a.area, ...(a.label ? { label: a.label } : {}) }
+          ? { type: 'uri', linkUri: resolveUriForSend(env, a) ?? '', area: a.area, ...(a.label ? { label: a.label } : {}) }
           : { type: 'message', text: a.text ?? '', area: a.area, ...(a.label ? { label: a.label } : {}) }
       ),
     }
@@ -60,10 +62,10 @@ export function buildLineMessage(row: RichMessageRow, origin: string): LineMessa
               height: 'sm',
               action:
                 b.action.type === 'uri'
-                  ? { type: 'uri', label: b.label, uri: b.action.uri }
+                  ? { type: 'uri', label: b.label, uri: resolveUriForSend(env, b.action) ?? '' }
                   : b.action.type === 'message'
                     ? { type: 'message', label: b.label, text: b.action.text }
-                    : { type: 'postback', label: b.label, data: b.action.data },
+                    : { type: 'postback', label: b.label, data: encodePostbackData(b.action.data, b.action.tag_id) },
             })),
           },
         }

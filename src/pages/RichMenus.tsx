@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { api, ApiRequestError } from '../lib/api'
-import type { RichMenu, RichMenuArea } from '../../shared/types'
+import type { RichMenu, RichMenuArea, Tag } from '../../shared/types'
 import Modal from '../components/Modal'
 
 const STATUS_LABEL: Record<string, string> = { draft: '草稿', published: '已發佈' }
@@ -107,6 +107,7 @@ const AREA_COLORS = ['#f43f5e', '#3b82f6', '#22c55e', '#f59e0b', '#a855f7', '#06
 
 export default function RichMenus() {
   const [menus, setMenus] = useState<RichMenu[]>([])
+  const [tags, setTags] = useState<Tag[]>([])
   const [editing, setEditing] = useState<RichMenu | 'new' | null>(null)
   const [error, setError] = useState<string | null>(null)
 
@@ -116,6 +117,7 @@ export default function RichMenus() {
 
   useEffect(() => {
     load()
+    api.get<Tag[]>('/tags').then(setTags)
   }, [])
 
   async function publish(id: string) {
@@ -239,6 +241,7 @@ export default function RichMenus() {
         <RichMenuForm
           menu={editing === 'new' ? null : editing}
           allMenus={menus}
+          tags={tags}
           onClose={() => setEditing(null)}
           onSaved={() => {
             setEditing(null)
@@ -253,11 +256,13 @@ export default function RichMenus() {
 function RichMenuForm({
   menu,
   allMenus,
+  tags,
   onClose,
   onSaved,
 }: {
   menu: RichMenu | null
   allMenus: RichMenu[]
+  tags: Tag[]
   onClose: () => void
   onSaved: () => void
 }) {
@@ -418,6 +423,7 @@ function RichMenuForm({
                 index={i}
                 area={area}
                 otherMenus={otherMenus}
+                tags={tags}
                 onChange={(a) => updateArea(i, a)}
                 onRemove={() => removeArea(i)}
               />
@@ -488,16 +494,19 @@ function AreaEditor({
   index,
   area,
   otherMenus,
+  tags,
   onChange,
   onRemove,
 }: {
   index: number
   area: RichMenuArea
   otherMenus: RichMenu[]
+  tags: Tag[]
   onChange: (a: RichMenuArea) => void
   onRemove: () => void
 }) {
   const actionType = area.action.type
+  const tagId = (area.action as { tag_id?: number }).tag_id ?? ''
 
   function updateBounds(key: 'x' | 'y' | 'width' | 'height', value: number) {
     onChange({ ...area, bounds: { ...area.bounds, [key]: value } })
@@ -584,6 +593,24 @@ function AreaEditor({
           移除
         </button>
       </div>
+      {(actionType === 'uri' || actionType === 'postback') && (
+        <div className="mt-2 flex items-center gap-2">
+          <span className="text-xs text-slate-500">點擊時貼標籤：</span>
+          <select
+            value={tagId}
+            onChange={(e) => onChange({ ...area, action: { ...area.action, tag_id: e.target.value ? Number(e.target.value) : undefined } as never })}
+            className="rounded border border-slate-300 px-2 py-1 text-xs"
+          >
+            <option value="">不貼標籤</option>
+            {tags.map((t) => (
+              <option key={t.id} value={t.id}>
+                {t.name}
+              </option>
+            ))}
+          </select>
+          {actionType === 'uri' && tagId && <span className="text-[10px] text-amber-600">需先設定 LIFF App 才會生效</span>}
+        </div>
+      )}
       {actionType === 'richmenuswitch' && (
         <p className="mt-1 text-[10px] text-slate-400">提醒：切換的目標選單也需要先發佈到 LINE，切換按鈕才會生效。</p>
       )}

@@ -43,6 +43,7 @@ export interface KeywordRule {
   reply_content: TextReplyContent | ImageReplyContent | RichMessageRefContent | StickerReplyContent
   is_active: number
   priority: number
+  tag_id: number | null
   created_at: string
   updated_at: string
 }
@@ -74,6 +75,9 @@ export interface ImagemapAction {
   uri?: string
   text?: string
   label?: string
+  // 僅 uri 類型有效：設定後點擊會先貼標籤再導向，需要先設定 LIFF App 才會生效
+  tag_id?: number
+  click_target_id?: string
 }
 
 export interface ImagemapVideo {
@@ -93,7 +97,10 @@ export interface ImagemapContent {
 
 export interface FlexCarouselButton {
   label: string
-  action: { type: 'uri'; uri: string } | { type: 'message'; text: string } | { type: 'postback'; data: string }
+  action:
+    | { type: 'uri'; uri: string; tag_id?: number; click_target_id?: string }
+    | { type: 'message'; text: string }
+    | { type: 'postback'; data: string; tag_id?: number }
 }
 
 export interface FlexCarouselCard {
@@ -120,9 +127,9 @@ export interface RichMessage {
 export interface RichMenuArea {
   bounds: { x: number; y: number; width: number; height: number }
   action:
-    | { type: 'uri'; uri: string; label?: string }
+    | { type: 'uri'; uri: string; label?: string; tag_id?: number; click_target_id?: string }
     | { type: 'message'; text: string; label?: string }
-    | { type: 'postback'; data: string; label?: string; displayText?: string }
+    | { type: 'postback'; data: string; label?: string; displayText?: string; tag_id?: number }
     | { type: 'richmenuswitch'; richMenuAliasId: string; data: string; label?: string }
 }
 

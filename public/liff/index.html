@@ -1,0 +1,81 @@
+<!doctype html>
+<html lang="zh-Hant">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>正在為您導向...</title>
+    <style>
+      body {
+        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        height: 100vh;
+        margin: 0;
+        color: #64748b;
+        font-size: 14px;
+      }
+    </style>
+  </head>
+  <body>
+    <p id="status">正在為您導向...</p>
+    <script src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
+    <script>
+      ;(async function () {
+        const statusEl = document.getElementById('status')
+        const params = new URLSearchParams(location.search)
+        const token = params.get('t')
+        if (!token) {
+          statusEl.textContent = '缺少必要參數'
+          return
+        }
+
+        function redirect(url) {
+          location.replace(url)
+        }
+
+        let targetUrl = null
+        try {
+          const res = await fetch('/api/click-targets/' + encodeURIComponent(token))
+          if (res.ok) {
+            const data = await res.json()
+            targetUrl = data.target_url
+          }
+        } catch (e) {
+          // 網路錯誤時仍嘗試往下走，讓使用者至少看到錯誤訊息而不是空白頁
+        }
+
+        if (!targetUrl) {
+          statusEl.textContent = '找不到這個連結，請聯絡管理員'
+          return
+        }
+
+        // 追蹤點擊 + 貼標籤：失敗也不能卡住使用者，最多等 1.5 秒就直接導向
+        try {
+          const configRes = await fetch('/api/liff-config')
+          const config = configRes.ok ? await configRes.json() : null
+          if (config && config.liffId && window.liff) {
+            await liff.init({ liffId: config.liffId })
+            if (liff.isLoggedIn()) {
+              const idToken = liff.getIDToken()
+              if (idToken) {
+                await Promise.race([
+                  fetch('/api/click-targets/' + encodeURIComponent(token) + '/track', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ idToken: idToken }),
+                  }),
+                  new Promise((resolve) => setTimeout(resolve, 1500)),
+                ])
+              }
+            }
+          }
+        } catch (e) {
+          // 追蹤失敗不影響導向
+        }
+
+        redirect(targetUrl)
+      })()
+    </script>
+  </body>
+</html>

@@ -20,7 +20,7 @@ keywordRoutes.get('/', async (c) => {
 
 keywordRoutes.post('/', async (c) => {
   const body = await c.req.json().catch(() => ({}))
-  const { name, match_type, keywords, reply_type, reply_content, is_active, priority } = body as {
+  const { name, match_type, keywords, reply_type, reply_content, is_active, priority, tag_id } = body as {
     name?: string
     match_type?: string
     keywords?: string[]
@@ -28,13 +28,14 @@ keywordRoutes.post('/', async (c) => {
     reply_content?: unknown
     is_active?: boolean
     priority?: number
+    tag_id?: number | null
   }
   if (!name?.trim() || !keywords?.length || !reply_content) {
     return c.json({ error: '請填寫名稱、關鍵字與回覆內容' }, 400)
   }
   const result = await c.env.DB.prepare(
-    `INSERT INTO keyword_rules (name, match_type, keywords, reply_type, reply_content, is_active, priority, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now'))`
+    `INSERT INTO keyword_rules (name, match_type, keywords, reply_type, reply_content, is_active, priority, tag_id, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))`
   )
     .bind(
       name.trim(),
@@ -43,7 +44,8 @@ keywordRoutes.post('/', async (c) => {
       reply_type ?? 'text',
       JSON.stringify(reply_content),
       is_active === false ? 0 : 1,
-      priority ?? 0
+      priority ?? 0,
+      tag_id ?? null
     )
     .run()
   return c.json({ id: result.meta.last_row_id }, 201)
@@ -51,10 +53,10 @@ keywordRoutes.post('/', async (c) => {
 
 keywordRoutes.patch('/:id', async (c) => {
   const id = Number(c.req.param('id'))
-  const existing = await c.env.DB.prepare('SELECT * FROM keyword_rules WHERE id = ?').bind(id).first()
+  const existing = await c.env.DB.prepare('SELECT * FROM keyword_rules WHERE id = ?').bind(id).first<{ tag_id: number | null }>()
   if (!existing) return c.json({ error: '找不到規則' }, 404)
   const body = await c.req.json().catch(() => ({}))
-  const { name, match_type, keywords, reply_type, reply_content, is_active, priority } = body as {
+  const { name, match_type, keywords, reply_type, reply_content, is_active, priority, tag_id } = body as {
     name?: string
     match_type?: string
     keywords?: string[]
@@ -62,6 +64,7 @@ keywordRoutes.patch('/:id', async (c) => {
     reply_content?: unknown
     is_active?: boolean
     priority?: number
+    tag_id?: number | null
   }
   await c.env.DB.prepare(
     `UPDATE keyword_rules SET
@@ -72,6 +75,7 @@ keywordRoutes.patch('/:id', async (c) => {
       reply_content = COALESCE(?, reply_content),
       is_active = COALESCE(?, is_active),
       priority = COALESCE(?, priority),
+      tag_id = ?,
       updated_at = datetime('now')
      WHERE id = ?`
   )
@@ -83,6 +87,7 @@ keywordRoutes.patch('/:id', async (c) => {
       reply_content ? JSON.stringify(reply_content) : null,
       is_active === undefined ? null : is_active ? 1 : 0,
       priority ?? null,
+      tag_id === undefined ? existing.tag_id : tag_id,
       id
     )
     .run()

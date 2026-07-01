@@ -2,9 +2,41 @@ import { Hono } from 'hono'
 import type { Env } from '../../lib/env'
 import { requireAuth, type AuthVariables } from '../middleware/auth'
 import { newId } from '../../lib/crypto'
+import { materializeUriAction } from '../../lib/clickTracking'
 
 export const richMessageRoutes = new Hono<{ Bindings: Env; Variables: AuthVariables }>()
 richMessageRoutes.use('*', requireAuth)
+
+interface TrackableAction {
+  type: string
+  uri?: string
+  label?: string
+  tag_id?: number
+  click_target_id?: string
+}
+
+// 存檔時處理有設定標籤的「開啟連結」動作（imagemap actions 或 carousel 卡片按鈕），
+// 建立/更新對應的 click_targets 紀錄，這樣送出訊息時才知道要換成哪個追蹤連結
+async function materializeContent(env: Env, type: string, content: Record<string, unknown>): Promise<Record<string, unknown>> {
+  if (type === 'imagemap' && Array.isArray(content.actions)) {
+    const actions = await Promise.all(
+      (content.actions as TrackableAction[]).map((a) => materializeUriAction(env, a))
+    )
+    return { ...content, actions }
+  }
+  if (type === 'flex_carousel' && Array.isArray(content.cards)) {
+    const cards = await Promise.all(
+      (content.cards as Array<{ buttons?: Array<{ action: TrackableAction }> }>).map(async (card) => ({
+        ...card,
+        buttons: card.buttons
+          ? await Promise.all(card.buttons.map(async (b) => ({ ...b, action: await materializeUriAction(env, b.action) })))
+          : card.buttons,
+      }))
+    )
+    return { ...content, cards }
+  }
+  return content
+}
 
 interface RichMessageRow {
   id: string
@@ -47,22 +79,24 @@ richMessageRoutes.post('/', async (c) => {
     type === 'imagemap'
       ? { altText: name, baseSize: { width: 1040, height: 1040 }, image_key: null, actions: [], video: null }
       : { altText: name, cards: [] }
+  const materialized = await materializeContent(c.env, type, (content as Record<string, unknown>) ?? defaultContent)
   await c.env.DB.prepare('INSERT INTO rich_messages (id, type, name, content) VALUES (?, ?, ?, ?)')
-    .bind(id, type, name.trim(), JSON.stringify(content ?? defaultContent))
+    .bind(id, type, name.trim(), JSON.stringify(materialized))
     .run()
   return c.json({ id }, 201)
 })
 
 richMessageRoutes.patch('/:id', async (c) => {
   const id = c.req.param('id')
-  const existing = await c.env.DB.prepare('SELECT id FROM rich_messages WHERE id = ?').bind(id).first()
+  const existing = await c.env.DB.prepare('SELECT type FROM rich_messages WHERE id = ?').bind(id).first<{ type: string }>()
   if (!existing) return c.json({ error: '找不到素材' }, 404)
   const body = await c.req.json().catch(() => ({}))
   const { name, content } = body as { name?: string; content?: unknown }
+  const materialized = content ? await materializeContent(c.env, existing.type, content as Record<string, unknown>) : null
   await c.env.DB.prepare(
     "UPDATE rich_messages SET name = COALESCE(?, name), content = COALESCE(?, content), updated_at = datetime('now') WHERE id = ?"
   )
-    .bind(name ?? null, content ? JSON.stringify(content) : null, id)
+    .bind(name ?? null, materialized ? JSON.stringify(materialized) : null, id)
     .run()
   return c.json({ ok: true })
 })

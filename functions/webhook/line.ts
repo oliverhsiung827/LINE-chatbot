@@ -2,6 +2,7 @@ import type { Env } from '../lib/env'
 import { verifyLineSignature } from '../lib/crypto'
 import { createLineClient, type LineMessage, type LineWebhookEvent } from '../lib/line'
 import { buildLineMessage, type RichMessageRow } from '../lib/richMessage'
+import { applyTag, decodePostbackData } from '../lib/clickTracking'
 
 interface KeywordRuleRow {
   id: number
@@ -9,6 +10,7 @@ interface KeywordRuleRow {
   keywords: string
   reply_type: 'text' | 'image' | 'flex' | 'sticker' | 'imagemap'
   reply_content: string
+  tag_id: number | null
 }
 
 function matchesRule(text: string, rule: KeywordRuleRow): boolean {
@@ -43,7 +45,7 @@ async function ruleToLineMessage(env: Env, origin: string, rule: KeywordRuleRow)
       .bind(richMessageId)
       .first<RichMessageRow>()
     if (!row) return null
-    return buildLineMessage(row, origin)
+    return buildLineMessage(env, row, origin)
   }
   return { type: 'sticker', packageId: content.packageId as string, stickerId: content.stickerId as string }
 }
@@ -109,11 +111,12 @@ async function handleEvent(env: Env, origin: string, event: LineWebhookEvent) {
     await Promise.all([touchLastInteraction(env, userId), logMessage(env, userId, 'inbound', 'text', text)])
 
     const rules = await env.DB.prepare(
-      'SELECT id, match_type, keywords, reply_type, reply_content FROM keyword_rules WHERE is_active = 1 ORDER BY priority DESC, id ASC'
+      'SELECT id, match_type, keywords, reply_type, reply_content, tag_id FROM keyword_rules WHERE is_active = 1 ORDER BY priority DESC, id ASC'
     ).all<KeywordRuleRow>()
 
     const matched = rules.results.find((rule) => matchesRule(text, rule))
     if (matched) {
+      if (matched.tag_id) await applyTag(env, userId, matched.tag_id)
       const message = await ruleToLineMessage(env, origin, matched)
       if (message) {
         const line = createLineClient(env.LINE_CHANNEL_ACCESS_TOKEN)
@@ -124,7 +127,14 @@ async function handleEvent(env: Env, origin: string, event: LineWebhookEvent) {
     return
   }
 
-  // 其他事件類型（image、sticker、postback...）僅記錄互動時間，供未來擴充使用
+  if (event.type === 'postback') {
+    await touchLastInteraction(env, userId)
+    const { tagId } = decodePostbackData(event.postback?.data ?? '')
+    if (tagId) await applyTag(env, userId, tagId)
+    return
+  }
+
+  // 其他事件類型（image、sticker...）僅記錄互動時間，供未來擴充使用
   await touchLastInteraction(env, userId)
 }
 

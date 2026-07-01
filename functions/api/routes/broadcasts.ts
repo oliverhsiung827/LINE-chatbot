@@ -45,7 +45,7 @@ async function toLineMessage(env: Env, origin: string, messageType: string, cont
       .bind(richMessageId)
       .first<RichMessageRow>()
     if (!row) return null
-    return buildLineMessage(row, origin)
+    return buildLineMessage(env, row, origin)
   }
   return { type: 'text', text: JSON.stringify(content) }
 }

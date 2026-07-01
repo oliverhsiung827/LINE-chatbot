@@ -8,6 +8,7 @@ import type {
   FlexCarouselContent,
   FlexCarouselCard,
   FlexCarouselButton,
+  Tag,
 } from '../../shared/types'
 import Modal from '../components/Modal'
 
@@ -22,6 +23,7 @@ interface Bounds {
 
 export default function RichMessages() {
   const [items, setItems] = useState<RichMessage[]>([])
+  const [tags, setTags] = useState<Tag[]>([])
   const [editing, setEditing] = useState<{ type: RichMessageType; id: string | null } | null>(null)
   const [error, setError] = useState<string | null>(null)
 
@@ -30,6 +32,7 @@ export default function RichMessages() {
   }
 
   useEffect(() => {
+    api.get<Tag[]>('/tags').then(setTags)
     load()
   }, [])
 
@@ -100,6 +103,7 @@ export default function RichMessages() {
       {editing?.type === 'imagemap' && (
         <ImagemapEditor
           id={editing.id}
+          tags={tags}
           onClose={() => setEditing(null)}
           onSaved={() => {
             setEditing(null)
@@ -111,6 +115,7 @@ export default function RichMessages() {
       {editing?.type === 'flex_carousel' && (
         <CarouselEditor
           id={editing.id}
+          tags={tags}
           onClose={() => setEditing(null)}
           onSaved={() => {
             setEditing(null)
@@ -129,11 +134,13 @@ function defaultImagemapAction(): ImagemapAction {
 
 function ImagemapEditor({
   id,
+  tags,
   onClose,
   onSaved,
   onError,
 }: {
   id: string | null
+  tags: Tag[]
   onClose: () => void
   onSaved: () => void
   onError: (msg: string | null) => void
@@ -386,6 +393,24 @@ function ImagemapEditor({
                     移除
                   </button>
                 </div>
+                {a.type === 'uri' && (
+                  <div className="mt-2 flex items-center gap-2">
+                    <span className="text-xs text-slate-500">點擊時貼標籤：</span>
+                    <select
+                      value={a.tag_id ?? ''}
+                      onChange={(e) => updateAction(i, { ...a, tag_id: e.target.value ? Number(e.target.value) : undefined })}
+                      className="rounded border border-slate-300 px-2 py-1 text-xs"
+                    >
+                      <option value="">不貼標籤</option>
+                      {tags.map((t) => (
+                        <option key={t.id} value={t.id}>
+                          {t.name}
+                        </option>
+                      ))}
+                    </select>
+                    {a.tag_id && <span className="text-[10px] text-amber-600">需先設定 LIFF App 才會生效</span>}
+                  </div>
+                )}
               </div>
             ))}
             {actions.length === 0 && <p className="text-xs text-slate-400">尚未設定任何點擊區塊</p>}
@@ -457,11 +482,13 @@ function defaultCard(): FlexCarouselCard {
 
 function CarouselEditor({
   id,
+  tags,
   onClose,
   onSaved,
   onError,
 }: {
   id: string | null
+  tags: Tag[]
   onClose: () => void
   onSaved: () => void
   onError: (msg: string | null) => void
@@ -616,55 +643,82 @@ function CarouselEditor({
                     </button>
                   </div>
                   {card.buttons.map((b, bi) => (
-                    <div key={bi} className="flex flex-wrap gap-2">
-                      <input
-                        placeholder="按鈕文字"
-                        value={b.label}
-                        onChange={(e) => updateButton(i, bi, { ...b, label: e.target.value })}
-                        className="w-28 rounded border border-slate-300 px-2 py-1 text-xs"
-                      />
-                      <select
-                        value={b.action.type}
-                        onChange={(e) => {
-                          const type = e.target.value
-                          updateButton(i, bi, {
-                            ...b,
-                            action: type === 'uri' ? { type: 'uri', uri: '' } : type === 'message' ? { type: 'message', text: '' } : { type: 'postback', data: '' },
-                          })
-                        }}
-                        className="rounded border border-slate-300 px-2 py-1 text-xs"
-                      >
-                        <option value="uri">開啟連結</option>
-                        <option value="message">傳送文字訊息</option>
-                        <option value="postback">Postback</option>
-                      </select>
-                      {b.action.type === 'uri' && (
+                    <div key={bi} className="rounded border border-slate-100 p-1.5">
+                      <div className="flex flex-wrap gap-2">
                         <input
-                          placeholder="https://..."
-                          value={b.action.uri}
-                          onChange={(e) => updateButton(i, bi, { ...b, action: { type: 'uri', uri: e.target.value } })}
-                          className="min-w-[8rem] flex-1 rounded border border-slate-300 px-2 py-1 text-xs"
+                          placeholder="按鈕文字"
+                          value={b.label}
+                          onChange={(e) => updateButton(i, bi, { ...b, label: e.target.value })}
+                          className="w-28 rounded border border-slate-300 px-2 py-1 text-xs"
                         />
+                        <select
+                          value={b.action.type}
+                          onChange={(e) => {
+                            const type = e.target.value
+                            updateButton(i, bi, {
+                              ...b,
+                              action: type === 'uri' ? { type: 'uri', uri: '' } : type === 'message' ? { type: 'message', text: '' } : { type: 'postback', data: '' },
+                            })
+                          }}
+                          className="rounded border border-slate-300 px-2 py-1 text-xs"
+                        >
+                          <option value="uri">開啟連結</option>
+                          <option value="message">傳送文字訊息</option>
+                          <option value="postback">Postback</option>
+                        </select>
+                        {b.action.type === 'uri' && (
+                          <input
+                            placeholder="https://..."
+                            value={b.action.uri}
+                            onChange={(e) => updateButton(i, bi, { ...b, action: { ...b.action, type: 'uri', uri: e.target.value } })}
+                            className="min-w-[8rem] flex-1 rounded border border-slate-300 px-2 py-1 text-xs"
+                          />
+                        )}
+                        {b.action.type === 'message' && (
+                          <input
+                            placeholder="要傳送的文字"
+                            value={b.action.text}
+                            onChange={(e) => updateButton(i, bi, { ...b, action: { type: 'message', text: e.target.value } })}
+                            className="min-w-[8rem] flex-1 rounded border border-slate-300 px-2 py-1 text-xs"
+                          />
+                        )}
+                        {b.action.type === 'postback' && (
+                          <input
+                            placeholder="postback data"
+                            value={b.action.data}
+                            onChange={(e) => updateButton(i, bi, { ...b, action: { ...b.action, type: 'postback', data: e.target.value } })}
+                            className="min-w-[8rem] flex-1 rounded border border-slate-300 px-2 py-1 text-xs"
+                          />
+                        )}
+                        <button onClick={() => removeButton(i, bi)} className="rounded border border-red-300 px-2 py-1 text-xs text-red-500 hover:bg-red-50">
+                          移除
+                        </button>
+                      </div>
+                      {(b.action.type === 'uri' || b.action.type === 'postback') && (
+                        <div className="mt-1 flex items-center gap-2">
+                          <span className="text-[10px] text-slate-500">點擊時貼標籤：</span>
+                          <select
+                            value={b.action.tag_id ?? ''}
+                            onChange={(e) =>
+                              updateButton(i, bi, {
+                                ...b,
+                                action: { ...b.action, tag_id: e.target.value ? Number(e.target.value) : undefined } as FlexCarouselButton['action'],
+                              })
+                            }
+                            className="rounded border border-slate-300 px-2 py-0.5 text-[10px]"
+                          >
+                            <option value="">不貼標籤</option>
+                            {tags.map((t) => (
+                              <option key={t.id} value={t.id}>
+                                {t.name}
+                              </option>
+                            ))}
+                          </select>
+                          {b.action.type === 'uri' && b.action.tag_id && (
+                            <span className="text-[10px] text-amber-600">需先設定 LIFF App 才會生效</span>
+                          )}
+                        </div>
                       )}
-                      {b.action.type === 'message' && (
-                        <input
-                          placeholder="要傳送的文字"
-                          value={b.action.text}
-                          onChange={(e) => updateButton(i, bi, { ...b, action: { type: 'message', text: e.target.value } })}
-                          className="min-w-[8rem] flex-1 rounded border border-slate-300 px-2 py-1 text-xs"
-                        />
-                      )}
-                      {b.action.type === 'postback' && (
-                        <input
-                          placeholder="postback data"
-                          value={b.action.data}
-                          onChange={(e) => updateButton(i, bi, { ...b, action: { type: 'postback', data: e.target.value } })}
-                          className="min-w-[8rem] flex-1 rounded border border-slate-300 px-2 py-1 text-xs"
-                        />
-                      )}
-                      <button onClick={() => removeButton(i, bi)} className="rounded border border-red-300 px-2 py-1 text-xs text-red-500 hover:bg-red-50">
-                        移除
-                      </button>
                     </div>
                   ))}
                 </div>
