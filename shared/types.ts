@@ -149,8 +149,19 @@ export interface RichMenu {
   created_at: string
 }
 
+export type AudienceMatchType = 'any' | 'all'
+
+export interface Audience {
+  id: string
+  name: string
+  tag_ids: number[]
+  match_type: AudienceMatchType
+  member_count?: number
+  created_at: string
+}
+
 export type BroadcastStatus = 'draft' | 'scheduled' | 'sending' | 'sent' | 'failed'
-export type BroadcastTargetType = 'all' | 'tag'
+export type BroadcastTargetType = 'all' | 'tag' | 'audience'
 
 export interface Broadcast {
   id: number
@@ -159,6 +170,7 @@ export interface Broadcast {
   message_content: TextReplyContent | ImageReplyContent | RichMessageRefContent | StickerReplyContent
   target_type: BroadcastTargetType
   target_tag_ids: number[] | null
+  target_audience_id: string | null
   status: BroadcastStatus
   scheduled_at: string | null
   sent_at: string | null

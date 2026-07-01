@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { api } from '../lib/api'
-import type { Broadcast, ReplyType, RichMessage, Tag } from '../../shared/types'
+import type { Audience, Broadcast, ReplyType, RichMessage, Tag } from '../../shared/types'
 import Modal from '../components/Modal'
 
 const STATUS_LABEL: Record<string, string> = { draft: '草稿', scheduled: '排程中', sending: '發送中', sent: '已發送', failed: '失敗' }
@@ -68,7 +68,9 @@ export default function Broadcasts() {
             {broadcasts.map((b) => (
               <tr key={b.id} className="border-t border-slate-100">
                 <td className="px-4 py-2">{b.title}</td>
-                <td className="px-4 py-2 text-slate-500">{b.target_type === 'all' ? '所有好友' : `${b.target_tag_ids?.length ?? 0} 個標籤`}</td>
+                <td className="px-4 py-2 text-slate-500">
+                  {b.target_type === 'all' ? '所有好友' : b.target_type === 'audience' ? '群眾' : `${b.target_tag_ids?.length ?? 0} 個標籤`}
+                </td>
                 <td className="px-4 py-2">{STATUS_LABEL[b.status]}</td>
                 <td className="px-4 py-2">{b.recipient_count}</td>
                 <td className="px-4 py-2 text-slate-500">{b.created_at}</td>
@@ -112,14 +114,17 @@ function BroadcastForm({ tags, onClose, onSaved }: { tags: Tag[]; onClose: () =>
   const [richMessageId, setRichMessageId] = useState('')
   const [imagemaps, setImagemaps] = useState<RichMessage[]>([])
   const [carousels, setCarousels] = useState<RichMessage[]>([])
-  const [targetType, setTargetType] = useState<'all' | 'tag'>('all')
+  const [audiences, setAudiences] = useState<Audience[]>([])
+  const [targetType, setTargetType] = useState<'all' | 'tag' | 'audience'>('all')
   const [selectedTags, setSelectedTags] = useState<number[]>([])
+  const [audienceId, setAudienceId] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
 
   useEffect(() => {
     api.get<RichMessage[]>('/rich-messages?type=imagemap').then(setImagemaps)
     api.get<RichMessage[]>('/rich-messages?type=flex_carousel').then(setCarousels)
+    api.get<Audience[]>('/audiences').then(setAudiences)
   }, [])
 
   function toggleTag(id: number) {
@@ -133,6 +138,7 @@ function BroadcastForm({ tags, onClose, onSaved }: { tags: Tag[]; onClose: () =>
     if (messageType === 'image' && !imageUrl.trim()) return setError('請輸入圖片網址')
     if ((messageType === 'imagemap' || messageType === 'flex') && !richMessageId) return setError('請選擇要發送的素材')
     if (targetType === 'tag' && selectedTags.length === 0) return setError('請選擇至少一個標籤')
+    if (targetType === 'audience' && !audienceId) return setError('請選擇群眾')
 
     const message_content =
       messageType === 'text'
@@ -149,6 +155,7 @@ function BroadcastForm({ tags, onClose, onSaved }: { tags: Tag[]; onClose: () =>
         message_content,
         target_type: targetType,
         target_tag_ids: targetType === 'tag' ? selectedTags : undefined,
+        target_audience_id: targetType === 'audience' ? audienceId : undefined,
       })
       onSaved()
     } finally {
@@ -203,9 +210,10 @@ function BroadcastForm({ tags, onClose, onSaved }: { tags: Tag[]; onClose: () =>
         )}
         <label className="block">
           <span className="mb-1 block text-slate-600">發送對象</span>
-          <select value={targetType} onChange={(e) => setTargetType(e.target.value as 'all' | 'tag')} className="w-full rounded-md border border-slate-300 px-2 py-1.5">
+          <select value={targetType} onChange={(e) => setTargetType(e.target.value as 'all' | 'tag' | 'audience')} className="w-full rounded-md border border-slate-300 px-2 py-1.5">
             <option value="all">所有好友</option>
             <option value="tag">依標籤分眾</option>
+            <option value="audience">選擇群眾（在「群眾管理」建立）</option>
           </select>
         </label>
         {targetType === 'tag' && (
@@ -222,6 +230,19 @@ function BroadcastForm({ tags, onClose, onSaved }: { tags: Tag[]; onClose: () =>
               </button>
             ))}
             {tags.length === 0 && <p className="text-xs text-slate-400">尚無標籤，請先至會員管理建立標籤</p>}
+          </div>
+        )}
+        {targetType === 'audience' && (
+          <div>
+            <select value={audienceId} onChange={(e) => setAudienceId(e.target.value)} className="w-full rounded-md border border-slate-300 px-2 py-1.5">
+              <option value="">請選擇...</option>
+              {audiences.map((a) => (
+                <option key={a.id} value={a.id}>
+                  {a.name}（約 {a.member_count ?? 0} 人）
+                </option>
+              ))}
+            </select>
+            {audiences.length === 0 && <p className="mt-1 text-xs text-amber-600">尚未建立任何群眾，請先到「群眾管理」建立。</p>}
           </div>
         )}
         <div className="flex justify-end gap-2 pt-2">

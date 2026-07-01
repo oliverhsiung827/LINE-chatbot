@@ -14,6 +14,7 @@ interface BroadcastRow {
   message_content: string
   target_type: string
   target_tag_ids: string | null
+  target_audience_id: string | null
   status: string
   scheduled_at: string | null
   sent_at: string | null
@@ -28,6 +29,31 @@ function toResponse(row: BroadcastRow) {
     message_content: JSON.parse(row.message_content),
     target_tag_ids: row.target_tag_ids ? JSON.parse(row.target_tag_ids) : null,
   }
+}
+
+async function resolveTagUserIds(env: Env, tagIds: number[], matchType: 'any' | 'all'): Promise<string[]> {
+  if (!tagIds.length) return []
+  const placeholders = tagIds.map(() => '?').join(',')
+  if (matchType === 'any') {
+    const users = await env.DB.prepare(
+      `SELECT DISTINCT u.id FROM line_users u
+       JOIN member_tags mt ON mt.user_id = u.id
+       WHERE mt.tag_id IN (${placeholders}) AND u.is_blocked = 0`
+    )
+      .bind(...tagIds)
+      .all()
+    return users.results.map((r) => (r as { id: string }).id)
+  }
+  const users = await env.DB.prepare(
+    `SELECT u.id FROM line_users u
+     JOIN member_tags mt ON mt.user_id = u.id
+     WHERE mt.tag_id IN (${placeholders}) AND u.is_blocked = 0
+     GROUP BY u.id
+     HAVING COUNT(DISTINCT mt.tag_id) = ?`
+  )
+    .bind(...tagIds, tagIds.length)
+    .all()
+  return users.results.map((r) => (r as { id: string }).id)
 }
 
 async function toLineMessage(env: Env, origin: string, messageType: string, content: Record<string, unknown>): Promise<LineMessage | null> {
@@ -77,17 +103,18 @@ broadcastRoutes.get('/', async (c) => {
 broadcastRoutes.post('/', async (c) => {
   const admin = c.get('admin')
   const body = await c.req.json().catch(() => ({}))
-  const { title, message_type, message_content, target_type, target_tag_ids } = body as {
+  const { title, message_type, message_content, target_type, target_tag_ids, target_audience_id } = body as {
     title?: string
     message_type?: string
     message_content?: unknown
     target_type?: string
     target_tag_ids?: number[]
+    target_audience_id?: string
   }
   if (!title?.trim() || !message_content) return c.json({ error: '請填寫標題與訊息內容' }, 400)
   const result = await c.env.DB.prepare(
-    `INSERT INTO broadcasts (title, message_type, message_content, target_type, target_tag_ids, created_by)
-     VALUES (?, ?, ?, ?, ?, ?)`
+    `INSERT INTO broadcasts (title, message_type, message_content, target_type, target_tag_ids, target_audience_id, created_by)
+     VALUES (?, ?, ?, ?, ?, ?, ?)`
   )
     .bind(
       title.trim(),
@@ -95,6 +122,7 @@ broadcastRoutes.post('/', async (c) => {
       JSON.stringify(message_content),
       target_type ?? 'all',
       target_tag_ids?.length ? JSON.stringify(target_tag_ids) : null,
+      target_audience_id ?? null,
       admin.sub
     )
     .run()
@@ -136,18 +164,22 @@ broadcastRoutes.post('/:id/send', async (c) => {
         'SELECT COUNT(*) as count FROM line_users WHERE is_blocked = 0'
       ).first<{ count: number }>()
       recipientCount = countRow?.count ?? 0
+    } else if (row.target_type === 'audience') {
+      if (!row.target_audience_id) throw new Error('未選擇目標群眾')
+      const audience = await c.env.DB.prepare('SELECT tag_ids, match_type FROM audiences WHERE id = ?')
+        .bind(row.target_audience_id)
+        .first<{ tag_ids: string; match_type: 'any' | 'all' }>()
+      if (!audience) throw new Error('找不到目標群眾，可能已被刪除')
+      const tagIds = JSON.parse(audience.tag_ids) as number[]
+      const userIds = await resolveTagUserIds(c.env, tagIds, audience.match_type)
+      for (const batch of chunk(userIds, 500)) {
+        await line.multicast(batch, [message])
+      }
+      recipientCount = userIds.length
     } else {
       const tagIds = row.target_tag_ids ? (JSON.parse(row.target_tag_ids) as number[]) : []
       if (!tagIds.length) throw new Error('未選擇目標標籤')
-      const placeholders = tagIds.map(() => '?').join(',')
-      const users = await c.env.DB.prepare(
-        `SELECT DISTINCT u.id FROM line_users u
-         JOIN member_tags mt ON mt.user_id = u.id
-         WHERE mt.tag_id IN (${placeholders}) AND u.is_blocked = 0`
-      )
-        .bind(...tagIds)
-        .all()
-      const userIds = users.results.map((r) => (r as { id: string }).id)
+      const userIds = await resolveTagUserIds(c.env, tagIds, 'any')
       for (const batch of chunk(userIds, 500)) {
         await line.multicast(batch, [message])
       }

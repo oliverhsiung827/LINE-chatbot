@@ -5,6 +5,7 @@ import Login from './pages/Login'
 import Dashboard from './pages/Dashboard'
 import Members from './pages/Members'
 import Tags from './pages/Tags'
+import Audiences from './pages/Audiences'
 import JoinLinks from './pages/JoinLinks'
 import Keywords from './pages/Keywords'
 import RichMenus from './pages/RichMenus'
@@ -31,6 +32,7 @@ export default function App() {
                 <Route path="/" element={<Dashboard />} />
                 <Route path="/members" element={<Members />} />
                 <Route path="/tags" element={<Tags />} />
+                <Route path="/audiences" element={<Audiences />} />
                 <Route path="/join-links" element={<JoinLinks />} />
                 <Route path="/keywords" element={<Keywords />} />
                 <Route path="/rich-menus" element={<RichMenus />} />
