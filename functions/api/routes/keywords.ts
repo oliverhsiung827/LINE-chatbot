@@ -20,7 +20,7 @@ keywordRoutes.get('/', async (c) => {
 
 keywordRoutes.post('/', async (c) => {
   const body = await c.req.json().catch(() => ({}))
-  const { name, match_type, keywords, reply_type, reply_content, is_active, priority, tag_id } = body as {
+  const { name, match_type, keywords, reply_type, reply_content, is_active, priority, tag_id, start_at, end_at } = body as {
     name?: string
     match_type?: string
     keywords?: string[]
@@ -29,13 +29,16 @@ keywordRoutes.post('/', async (c) => {
     is_active?: boolean
     priority?: number
     tag_id?: number | null
+    start_at?: string | null
+    end_at?: string | null
   }
   if (!name?.trim() || !keywords?.length || !reply_content) {
     return c.json({ error: '請填寫名稱、關鍵字與回覆內容' }, 400)
   }
+  if (start_at && end_at && start_at >= end_at) return c.json({ error: '生效結束時間必須晚於開始時間' }, 400)
   const result = await c.env.DB.prepare(
-    `INSERT INTO keyword_rules (name, match_type, keywords, reply_type, reply_content, is_active, priority, tag_id, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))`
+    `INSERT INTO keyword_rules (name, match_type, keywords, reply_type, reply_content, is_active, priority, tag_id, start_at, end_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))`
   )
     .bind(
       name.trim(),
@@ -45,7 +48,9 @@ keywordRoutes.post('/', async (c) => {
       JSON.stringify(reply_content),
       is_active === false ? 0 : 1,
       priority ?? 0,
-      tag_id ?? null
+      tag_id ?? null,
+      start_at ?? null,
+      end_at ?? null
     )
     .run()
   return c.json({ id: result.meta.last_row_id }, 201)
@@ -53,10 +58,14 @@ keywordRoutes.post('/', async (c) => {
 
 keywordRoutes.patch('/:id', async (c) => {
   const id = Number(c.req.param('id'))
-  const existing = await c.env.DB.prepare('SELECT * FROM keyword_rules WHERE id = ?').bind(id).first<{ tag_id: number | null }>()
+  const existing = await c.env.DB.prepare('SELECT * FROM keyword_rules WHERE id = ?').bind(id).first<{
+    tag_id: number | null
+    start_at: string | null
+    end_at: string | null
+  }>()
   if (!existing) return c.json({ error: '找不到規則' }, 404)
   const body = await c.req.json().catch(() => ({}))
-  const { name, match_type, keywords, reply_type, reply_content, is_active, priority, tag_id } = body as {
+  const { name, match_type, keywords, reply_type, reply_content, is_active, priority, tag_id, start_at, end_at } = body as {
     name?: string
     match_type?: string
     keywords?: string[]
@@ -65,7 +74,12 @@ keywordRoutes.patch('/:id', async (c) => {
     is_active?: boolean
     priority?: number
     tag_id?: number | null
+    start_at?: string | null
+    end_at?: string | null
   }
+  const nextStartAt = start_at === undefined ? existing.start_at : start_at
+  const nextEndAt = end_at === undefined ? existing.end_at : end_at
+  if (nextStartAt && nextEndAt && nextStartAt >= nextEndAt) return c.json({ error: '生效結束時間必須晚於開始時間' }, 400)
   await c.env.DB.prepare(
     `UPDATE keyword_rules SET
       name = COALESCE(?, name),
@@ -76,6 +90,8 @@ keywordRoutes.patch('/:id', async (c) => {
       is_active = COALESCE(?, is_active),
       priority = COALESCE(?, priority),
       tag_id = ?,
+      start_at = ?,
+      end_at = ?,
       updated_at = datetime('now')
      WHERE id = ?`
   )
@@ -88,6 +104,8 @@ keywordRoutes.patch('/:id', async (c) => {
       is_active === undefined ? null : is_active ? 1 : 0,
       priority ?? null,
       tag_id === undefined ? existing.tag_id : tag_id,
+      nextStartAt,
+      nextEndAt,
       id
     )
     .run()

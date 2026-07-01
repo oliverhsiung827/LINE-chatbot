@@ -111,7 +111,11 @@ async function handleEvent(env: Env, origin: string, event: LineWebhookEvent) {
     await Promise.all([touchLastInteraction(env, userId), logMessage(env, userId, 'inbound', 'text', text)])
 
     const rules = await env.DB.prepare(
-      'SELECT id, match_type, keywords, reply_type, reply_content, tag_id FROM keyword_rules WHERE is_active = 1 ORDER BY priority DESC, id ASC'
+      `SELECT id, match_type, keywords, reply_type, reply_content, tag_id FROM keyword_rules
+       WHERE is_active = 1
+         AND (start_at IS NULL OR start_at <= datetime('now'))
+         AND (end_at IS NULL OR end_at >= datetime('now'))
+       ORDER BY priority DESC, id ASC`
     ).all<KeywordRuleRow>()
 
     const matched = rules.results.find((rule) => matchesRule(text, rule))

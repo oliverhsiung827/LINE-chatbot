@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { api } from '../lib/api'
 import type { Tag } from '../../shared/types'
+import { formatTaipei } from '../lib/time'
 
 export default function Tags() {
   const [tags, setTags] = useState<Tag[]>([])
@@ -117,7 +118,7 @@ export default function Tags() {
                     </div>
                   </td>
                   <td className="px-4 py-2 text-slate-500">{t.member_count ?? 0}</td>
-                  <td className="px-4 py-2 text-slate-500">{t.created_at}</td>
+                  <td className="px-4 py-2 text-slate-500">{formatTaipei(t.created_at)}</td>
                   <td className="space-x-3 px-4 py-2">
                     <button onClick={() => saveEdit(t.id)} className="text-emerald-600 hover:underline">
                       儲存
@@ -136,7 +137,7 @@ export default function Tags() {
                     </span>
                   </td>
                   <td className="px-4 py-2 text-slate-500">{t.member_count ?? 0}</td>
-                  <td className="px-4 py-2 text-slate-500">{t.created_at}</td>
+                  <td className="px-4 py-2 text-slate-500">{formatTaipei(t.created_at)}</td>
                   <td className="space-x-3 px-4 py-2">
                     <button onClick={() => startEdit(t)} className="text-emerald-600 hover:underline">
                       編輯

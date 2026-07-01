@@ -1,0 +1,12 @@
+name = "line-chatbot-scheduler"
+main = "src/index.ts"
+compatibility_date = "2024-11-01"
+
+# 每分鐘檢查一次是否有到期的排程群發訊息要發送
+[triggers]
+crons = ["* * * * *"]
+
+# 機密值請用：
+#   wrangler secret put TARGET_URL --config cron/wrangler.toml
+#   wrangler secret put INTERNAL_CRON_SECRET --config cron/wrangler.toml
+# INTERNAL_CRON_SECRET 必須跟主站 Cloudflare Pages 專案設定的同名 secret 一致

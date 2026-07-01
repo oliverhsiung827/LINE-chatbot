@@ -13,4 +13,6 @@ export interface Env {
   // 只要兩個 channel 同一個 Provider，LIFF 取得的 userId 就會跟 Messaging API 的 userId 一致。
   LIFF_ID?: string
   LIFF_CHANNEL_ID?: string
+  // 定時 Worker 呼叫 /api/broadcasts/process-scheduled 用的共用密鑰
+  INTERNAL_CRON_SECRET?: string
 }

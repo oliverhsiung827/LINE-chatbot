@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { api } from '../lib/api'
 import type { DashboardStats } from '../../shared/types'
+import { formatTaipei } from '../lib/time'
 
 const STATUS_LABEL: Record<string, string> = {
   draft: '草稿',
@@ -63,7 +64,7 @@ export default function Dashboard() {
                 <td className="px-4 py-2">{b.title}</td>
                 <td className="px-4 py-2">{STATUS_LABEL[b.status] ?? b.status}</td>
                 <td className="px-4 py-2">{b.recipient_count}</td>
-                <td className="px-4 py-2 text-slate-500">{b.created_at}</td>
+                <td className="px-4 py-2 text-slate-500">{formatTaipei(b.created_at)}</td>
               </tr>
             ))}
           </tbody>

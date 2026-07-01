@@ -44,6 +44,8 @@ export interface KeywordRule {
   is_active: number
   priority: number
   tag_id: number | null
+  start_at: string | null
+  end_at: string | null
   created_at: string
   updated_at: string
 }

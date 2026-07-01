@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom'
 import { api } from '../lib/api'
 import type { LineUser, Tag } from '../../shared/types'
 import Modal from '../components/Modal'
+import { formatTaipei } from '../lib/time'
 
 interface MembersResponse {
   items: LineUser[]
@@ -129,7 +130,7 @@ export default function Members() {
                 <td className="px-4 py-2">
                   {m.is_blocked ? <span className="text-red-500">已封鎖</span> : <span className="text-emerald-600">正常</span>}
                 </td>
-                <td className="px-4 py-2 text-slate-500">{m.followed_at ?? '-'}</td>
+                <td className="px-4 py-2 text-slate-500">{formatTaipei(m.followed_at)}</td>
                 <td className="px-4 py-2">
                   <button onClick={() => setSelected(m)} className="text-emerald-600 hover:underline">
                     詳情
@@ -232,8 +233,8 @@ function MemberDetail({
           </button>
         </div>
         <p className="text-slate-500">LINE User ID：{member.id}</p>
-        <p className="text-slate-500">加入時間：{member.followed_at ?? '-'}</p>
-        <p className="text-slate-500">最後互動：{member.last_interaction_at ?? '-'}</p>
+        <p className="text-slate-500">加入時間：{formatTaipei(member.followed_at)}</p>
+        <p className="text-slate-500">最後互動：{formatTaipei(member.last_interaction_at)}</p>
       </div>
     </Modal>
   )

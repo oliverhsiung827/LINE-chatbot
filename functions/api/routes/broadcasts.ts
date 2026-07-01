@@ -6,7 +6,11 @@ import { buildLineMessage, type RichMessageRow } from '../../lib/richMessage'
 import { resolveAudienceUserIds } from '../../lib/audience'
 
 export const broadcastRoutes = new Hono<{ Bindings: Env; Variables: AuthVariables }>()
-broadcastRoutes.use('*', requireAuth)
+// /process-scheduled 是給定時 Worker 呼叫的公開端點（用共用密鑰驗證），其餘都需要管理員登入
+broadcastRoutes.use('*', async (c, next) => {
+  if (c.req.path.endsWith('/process-scheduled')) return next()
+  return requireAuth(c, next)
+})
 
 interface BroadcastRow {
   id: number
@@ -104,18 +108,22 @@ broadcastRoutes.get('/', async (c) => {
 broadcastRoutes.post('/', async (c) => {
   const admin = c.get('admin')
   const body = await c.req.json().catch(() => ({}))
-  const { title, message_type, message_content, target_type, target_tag_ids, target_audience_id } = body as {
+  const { title, message_type, message_content, target_type, target_tag_ids, target_audience_id, scheduled_at } = body as {
     title?: string
     message_type?: string
     message_content?: unknown
     target_type?: string
     target_tag_ids?: number[]
     target_audience_id?: string
+    scheduled_at?: string | null
   }
   if (!title?.trim() || !message_content) return c.json({ error: '請填寫標題與訊息內容' }, 400)
+  if (scheduled_at && scheduled_at <= new Date().toISOString().slice(0, 19).replace('T', ' ')) {
+    return c.json({ error: '排程時間必須晚於現在' }, 400)
+  }
   const result = await c.env.DB.prepare(
-    `INSERT INTO broadcasts (title, message_type, message_content, target_type, target_tag_ids, target_audience_id, created_by)
-     VALUES (?, ?, ?, ?, ?, ?, ?)`
+    `INSERT INTO broadcasts (title, message_type, message_content, target_type, target_tag_ids, target_audience_id, status, scheduled_at, created_by)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
   )
     .bind(
       title.trim(),
@@ -124,6 +132,8 @@ broadcastRoutes.post('/', async (c) => {
       target_type ?? 'all',
       target_tag_ids?.length ? JSON.stringify(target_tag_ids) : null,
       target_audience_id ?? null,
+      scheduled_at ? 'scheduled' : 'draft',
+      scheduled_at ?? null,
       admin.sub
     )
     .run()
@@ -136,25 +146,18 @@ broadcastRoutes.delete('/:id', async (c) => {
     status: string
   }>()
   if (!row) return c.json({ error: '找不到群發訊息' }, 404)
-  if (row.status !== 'draft') return c.json({ error: '只能刪除草稿狀態的群發訊息' }, 400)
+  if (row.status !== 'draft' && row.status !== 'scheduled') return c.json({ error: '只能刪除草稿或排程中的群發訊息' }, 400)
   await c.env.DB.prepare('DELETE FROM broadcasts WHERE id = ?').bind(id).run()
   return c.json({ ok: true })
 })
 
-broadcastRoutes.post('/:id/send', async (c) => {
-  const id = Number(c.req.param('id'))
-  const row = await c.env.DB.prepare('SELECT * FROM broadcasts WHERE id = ?').bind(id).first<BroadcastRow>()
-  if (!row) return c.json({ error: '找不到群發訊息' }, 404)
-  if (row.status === 'sent' || row.status === 'sending') return c.json({ error: '此訊息已發送過' }, 400)
-
-  await c.env.DB.prepare("UPDATE broadcasts SET status = 'sending' WHERE id = ?").bind(id).run()
-
+async function performSend(c: { env: Env; req: { url: string } }, row: BroadcastRow) {
   const line = createLineClient(c.env.LINE_CHANNEL_ACCESS_TOKEN)
   const origin = new URL(c.req.url).origin
   const message = await toLineMessage(c.env, origin, row.message_type, JSON.parse(row.message_content))
   if (!message) {
-    await c.env.DB.prepare("UPDATE broadcasts SET status = 'failed' WHERE id = ?").bind(id).run()
-    return c.json({ error: '找不到對應的進階訊息素材，請確認素材是否已被刪除' }, 400)
+    await c.env.DB.prepare("UPDATE broadcasts SET status = 'failed' WHERE id = ?").bind(row.id).run()
+    return { error: '找不到對應的進階訊息素材，請確認素材是否已被刪除', status: 400 as const }
   }
 
   try {
@@ -190,11 +193,43 @@ broadcastRoutes.post('/:id/send', async (c) => {
     await c.env.DB.prepare(
       "UPDATE broadcasts SET status = 'sent', sent_at = datetime('now'), recipient_count = ? WHERE id = ?"
     )
-      .bind(recipientCount, id)
+      .bind(recipientCount, row.id)
       .run()
-    return c.json({ ok: true, recipient_count: recipientCount })
+    return { ok: true as const, recipient_count: recipientCount }
   } catch (err) {
-    await c.env.DB.prepare("UPDATE broadcasts SET status = 'failed' WHERE id = ?").bind(id).run()
-    return c.json({ error: `發送失敗：${describeLineError(err)}` }, 502)
+    await c.env.DB.prepare("UPDATE broadcasts SET status = 'failed' WHERE id = ?").bind(row.id).run()
+    return { error: `發送失敗：${describeLineError(err)}`, status: 502 as const }
   }
+}
+
+broadcastRoutes.post('/:id/send', async (c) => {
+  const id = Number(c.req.param('id'))
+  const row = await c.env.DB.prepare('SELECT * FROM broadcasts WHERE id = ?').bind(id).first<BroadcastRow>()
+  if (!row) return c.json({ error: '找不到群發訊息' }, 404)
+  if (row.status === 'sent' || row.status === 'sending') return c.json({ error: '此訊息已發送過' }, 400)
+
+  await c.env.DB.prepare("UPDATE broadcasts SET status = 'sending' WHERE id = ?").bind(id).run()
+  const result = await performSend(c, row)
+  if ('error' in result) return c.json({ error: result.error }, result.status)
+  return c.json(result)
+})
+
+// 由定時 Worker 呼叫，檢查排程到期的群發訊息並發送。用共用密鑰驗證，不走管理員登入。
+broadcastRoutes.post('/process-scheduled', async (c) => {
+  const auth = c.req.header('authorization')
+  if (!c.env.INTERNAL_CRON_SECRET || auth !== `Bearer ${c.env.INTERNAL_CRON_SECRET}`) {
+    return c.json({ error: 'Unauthorized' }, 401)
+  }
+
+  const due = await c.env.DB.prepare(
+    "SELECT * FROM broadcasts WHERE status = 'scheduled' AND scheduled_at <= datetime('now')"
+  ).all<BroadcastRow>()
+
+  const results = []
+  for (const row of due.results) {
+    await c.env.DB.prepare("UPDATE broadcasts SET status = 'sending' WHERE id = ?").bind(row.id).run()
+    const result = await performSend(c, row)
+    results.push({ id: row.id, ...result })
+  }
+  return c.json({ processed: results.length, results })
 })

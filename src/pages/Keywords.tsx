@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { api } from '../lib/api'
 import type { KeywordRule, MatchType, ReplyType, RichMessage, RichMessageRefContent, Tag } from '../../shared/types'
 import Modal from '../components/Modal'
+import { formatTaipei, taipeiInputToUtcSql, utcToTaipeiInput } from '../lib/time'
 
 const MATCH_LABEL: Record<MatchType, string> = { exact: '完全符合', contains: '包含關鍵字', regex: '正規表示式' }
 const REPLY_LABEL: Record<ReplyType, string> = { text: '文字', image: '圖片', imagemap: '圖文／影片訊息', flex: '多頁訊息', sticker: '貼圖' }
@@ -49,6 +50,7 @@ export default function Keywords() {
               <th className="px-4 py-2">關鍵字</th>
               <th className="px-4 py-2">回覆類型</th>
               <th className="px-4 py-2">貼標籤</th>
+              <th className="px-4 py-2">生效期間</th>
               <th className="px-4 py-2">狀態</th>
               <th className="px-4 py-2" />
             </tr>
@@ -56,7 +58,7 @@ export default function Keywords() {
           <tbody>
             {rules.length === 0 && (
               <tr>
-                <td colSpan={7} className="px-4 py-6 text-center text-slate-400">
+                <td colSpan={8} className="px-4 py-6 text-center text-slate-400">
                   尚無自動回覆規則
                 </td>
               </tr>
@@ -68,6 +70,15 @@ export default function Keywords() {
                 <td className="px-4 py-2 text-slate-500">{r.keywords.join('、')}</td>
                 <td className="px-4 py-2">{REPLY_LABEL[r.reply_type]}</td>
                 <td className="px-4 py-2 text-slate-500">{tags.find((t) => t.id === r.tag_id)?.name ?? '-'}</td>
+                <td className="px-4 py-2 text-slate-500">
+                  {r.start_at || r.end_at ? (
+                    <>
+                      {r.start_at ? formatTaipei(r.start_at) : '不限'} ~ {r.end_at ? formatTaipei(r.end_at) : '不限'}
+                    </>
+                  ) : (
+                    '永久'
+                  )}
+                </td>
                 <td className="px-4 py-2">
                   <button onClick={() => toggleActive(r)} className={r.is_active ? 'text-emerald-600' : 'text-slate-400'}>
                     {r.is_active ? '啟用中' : '已停用'}
@@ -118,6 +129,9 @@ function KeywordForm({ rule, onClose, onSaved }: { rule: KeywordRule | null; onC
   const [tags, setTags] = useState<Tag[]>([])
   const [tagId, setTagId] = useState(rule?.tag_id ?? '')
   const [priority, setPriority] = useState(rule?.priority ?? 0)
+  const [hasSchedule, setHasSchedule] = useState(!!(rule?.start_at || rule?.end_at))
+  const [startAt, setStartAt] = useState(utcToTaipeiInput(rule?.start_at))
+  const [endAt, setEndAt] = useState(utcToTaipeiInput(rule?.end_at))
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
@@ -140,6 +154,12 @@ function KeywordForm({ rule, onClose, onSaved }: { rule: KeywordRule | null; onC
       setError('請選擇要發送的素材')
       return
     }
+    const start_at = hasSchedule ? taipeiInputToUtcSql(startAt) : null
+    const end_at = hasSchedule ? taipeiInputToUtcSql(endAt) : null
+    if (hasSchedule && start_at && end_at && start_at >= end_at) {
+      setError('生效結束時間必須晚於開始時間')
+      return
+    }
     let reply_content: unknown
     if (replyType === 'text') reply_content = { text }
     else if (replyType === 'image') reply_content = { originalContentUrl: imageUrl, previewImageUrl: imageUrl }
@@ -154,6 +174,8 @@ function KeywordForm({ rule, onClose, onSaved }: { rule: KeywordRule | null; onC
       reply_content,
       priority,
       tag_id: tagId ? Number(tagId) : null,
+      start_at,
+      end_at,
     }
     if (rule) await api.patch(`/keywords/${rule.id}`, payload)
     else await api.post('/keywords', payload)
@@ -223,6 +245,24 @@ function KeywordForm({ rule, onClose, onSaved }: { rule: KeywordRule | null; onC
           <span className="mb-1 block text-slate-600">優先權（數字越大越優先比對）</span>
           <input type="number" value={priority} onChange={(e) => setPriority(Number(e.target.value))} className="w-full rounded-md border border-slate-300 px-2 py-1.5" />
         </label>
+        <div className="rounded-md border border-slate-200 p-3">
+          <label className="mb-2 flex items-center gap-2 text-slate-700">
+            <input type="checkbox" checked={hasSchedule} onChange={(e) => setHasSchedule(e.target.checked)} />
+            設定生效期間（不勾選 = 永久有效）
+          </label>
+          {hasSchedule && (
+            <div className="grid grid-cols-2 gap-2">
+              <label className="block text-xs">
+                <span className="mb-1 block text-slate-500">開始時間（台灣時間，留空 = 不限開始）</span>
+                <input type="datetime-local" value={startAt} onChange={(e) => setStartAt(e.target.value)} className="w-full rounded border border-slate-300 px-2 py-1" />
+              </label>
+              <label className="block text-xs">
+                <span className="mb-1 block text-slate-500">結束時間（台灣時間，留空 = 不限結束）</span>
+                <input type="datetime-local" value={endAt} onChange={(e) => setEndAt(e.target.value)} className="w-full rounded border border-slate-300 px-2 py-1" />
+              </label>
+            </div>
+          )}
+        </div>
         <label className="block">
           <span className="mb-1 block text-slate-600">命中規則時貼標籤（選填，可用於後續分眾行銷）</span>
           <select value={tagId} onChange={(e) => setTagId(e.target.value ? Number(e.target.value) : '')} className="w-full rounded-md border border-slate-300 px-2 py-1.5">

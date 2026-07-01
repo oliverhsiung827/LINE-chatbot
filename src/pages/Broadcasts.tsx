@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { api } from '../lib/api'
 import type { Audience, Broadcast, ReplyType, RichMessage, Tag } from '../../shared/types'
 import Modal from '../components/Modal'
+import { formatTaipei, taipeiInputToUtcSql } from '../lib/time'
 
 const STATUS_LABEL: Record<string, string> = { draft: '草稿', scheduled: '排程中', sending: '發送中', sent: '已發送', failed: '失敗' }
 
@@ -30,8 +31,8 @@ export default function Broadcasts() {
     }
   }
 
-  async function remove(id: number) {
-    if (!confirm('確定要刪除此草稿嗎？')) return
+  async function remove(id: number, isScheduled: boolean) {
+    if (!confirm(isScheduled ? '確定要取消這則排程訊息嗎？' : '確定要刪除此草稿嗎？')) return
     await api.delete(`/broadcasts/${id}`)
     load()
   }
@@ -52,6 +53,7 @@ export default function Broadcasts() {
               <th className="px-4 py-2">標題</th>
               <th className="px-4 py-2">對象</th>
               <th className="px-4 py-2">狀態</th>
+              <th className="px-4 py-2">排程時間</th>
               <th className="px-4 py-2">收件人數</th>
               <th className="px-4 py-2">建立時間</th>
               <th className="px-4 py-2" />
@@ -60,7 +62,7 @@ export default function Broadcasts() {
           <tbody>
             {broadcasts.length === 0 && (
               <tr>
-                <td colSpan={6} className="px-4 py-6 text-center text-slate-400">
+                <td colSpan={7} className="px-4 py-6 text-center text-slate-400">
                   尚無群發訊息
                 </td>
               </tr>
@@ -72,18 +74,19 @@ export default function Broadcasts() {
                   {b.target_type === 'all' ? '所有好友' : b.target_type === 'audience' ? '群眾' : `${b.target_tag_ids?.length ?? 0} 個標籤`}
                 </td>
                 <td className="px-4 py-2">{STATUS_LABEL[b.status]}</td>
+                <td className="px-4 py-2 text-slate-500">{b.scheduled_at ? formatTaipei(b.scheduled_at) : '-'}</td>
                 <td className="px-4 py-2">{b.recipient_count}</td>
-                <td className="px-4 py-2 text-slate-500">{b.created_at}</td>
+                <td className="px-4 py-2 text-slate-500">{formatTaipei(b.created_at)}</td>
                 <td className="space-x-3 px-4 py-2">
                   {b.status === 'draft' && (
-                    <>
-                      <button onClick={() => send(b.id)} className="text-emerald-600 hover:underline">
-                        發送
-                      </button>
-                      <button onClick={() => remove(b.id)} className="text-red-500 hover:underline">
-                        刪除
-                      </button>
-                    </>
+                    <button onClick={() => send(b.id)} className="text-emerald-600 hover:underline">
+                      發送
+                    </button>
+                  )}
+                  {(b.status === 'draft' || b.status === 'scheduled') && (
+                    <button onClick={() => remove(b.id, b.status === 'scheduled')} className="text-red-500 hover:underline">
+                      {b.status === 'scheduled' ? '取消排程' : '刪除'}
+                    </button>
                   )}
                 </td>
               </tr>
@@ -118,6 +121,8 @@ function BroadcastForm({ tags, onClose, onSaved }: { tags: Tag[]; onClose: () =>
   const [targetType, setTargetType] = useState<'all' | 'tag' | 'audience'>('all')
   const [selectedTags, setSelectedTags] = useState<number[]>([])
   const [audienceId, setAudienceId] = useState('')
+  const [scheduleEnabled, setScheduleEnabled] = useState(false)
+  const [scheduledAt, setScheduledAt] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
 
@@ -139,6 +144,8 @@ function BroadcastForm({ tags, onClose, onSaved }: { tags: Tag[]; onClose: () =>
     if ((messageType === 'imagemap' || messageType === 'flex') && !richMessageId) return setError('請選擇要發送的素材')
     if (targetType === 'tag' && selectedTags.length === 0) return setError('請選擇至少一個標籤')
     if (targetType === 'audience' && !audienceId) return setError('請選擇群眾')
+    const scheduled_at = scheduleEnabled ? taipeiInputToUtcSql(scheduledAt) : null
+    if (scheduleEnabled && !scheduled_at) return setError('請選擇排程發送時間')
 
     const message_content =
       messageType === 'text'
@@ -156,6 +163,7 @@ function BroadcastForm({ tags, onClose, onSaved }: { tags: Tag[]; onClose: () =>
         target_type: targetType,
         target_tag_ids: targetType === 'tag' ? selectedTags : undefined,
         target_audience_id: targetType === 'audience' ? audienceId : undefined,
+        scheduled_at,
       })
       onSaved()
     } finally {
@@ -245,12 +253,30 @@ function BroadcastForm({ tags, onClose, onSaved }: { tags: Tag[]; onClose: () =>
             {audiences.length === 0 && <p className="mt-1 text-xs text-amber-600">尚未建立任何群眾，請先到「群眾管理」建立。</p>}
           </div>
         )}
+        <div className="rounded-md border border-slate-200 p-3">
+          <label className="mb-2 flex items-center gap-2 text-slate-700">
+            <input type="checkbox" checked={scheduleEnabled} onChange={(e) => setScheduleEnabled(e.target.checked)} />
+            排程發送（不勾選 = 先存成草稿，之後手動按發送）
+          </label>
+          {scheduleEnabled && (
+            <label className="block text-xs">
+              <span className="mb-1 block text-slate-500">發送時間（台灣時間）</span>
+              <input
+                type="datetime-local"
+                value={scheduledAt}
+                onChange={(e) => setScheduledAt(e.target.value)}
+                className="w-full rounded border border-slate-300 px-2 py-1"
+              />
+            </label>
+          )}
+        </div>
+
         <div className="flex justify-end gap-2 pt-2">
           <button onClick={onClose} className="rounded-md border border-slate-300 px-3 py-1.5 text-slate-600">
             取消
           </button>
           <button onClick={save} disabled={saving} className="rounded-md bg-emerald-600 px-3 py-1.5 text-white hover:bg-emerald-700 disabled:opacity-50">
-            {saving ? '建立中...' : '建立草稿'}
+            {saving ? '建立中...' : scheduleEnabled ? '建立排程' : '建立草稿'}
           </button>
         </div>
       </div>
