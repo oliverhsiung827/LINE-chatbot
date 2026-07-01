@@ -62,17 +62,40 @@
           // 忽略，config 保持 null
         }
 
-        async function withLiffIdToken(callback) {
-          if (!config || !config.liffId || !window.liff) return
+        // 在 LINE App 內開啟時通常已經有登入狀態，可以直接拿到身份；
+        // 用電腦或一般瀏覽器開啟時沒有這個登入狀態，改用 liff.login() 導去 LINE 登入頁，
+        // 登入完成後 LINE 會照 redirectUri 導回同一個網址（含原本的參數），流程會重新跑一次
+        async function ensureLogin() {
+          if (!config || !config.liffId || !window.liff) return { ok: false, redirecting: false }
           try {
             await liff.init({ liffId: config.liffId })
-            if (liff.isLoggedIn()) {
-              const idToken = liff.getIDToken()
-              if (idToken) await callback(idToken)
+            if (!liff.isLoggedIn()) {
+              statusEl.textContent = '需要登入 LINE 才能繼續，正在為您導向登入頁...'
+              liff.login({ redirectUri: location.href })
+              return { ok: false, redirecting: true }
             }
+            return { ok: true, redirecting: false }
           } catch (e) {
-            // 追蹤/貼標失敗不能卡住使用者
+            return { ok: false, redirecting: false }
           }
+        }
+
+        // 回傳 'redirecting'（正在導去 LINE 登入，呼叫端不能再自行導向別的網址）、
+        // 'done'（追蹤/貼標已嘗試完成，不論成功與否）
+        async function trackIfPossible(fetchCall) {
+          const { ok, redirecting } = await ensureLogin()
+          if (redirecting) return 'redirecting'
+          if (ok) {
+            const idToken = liff.getIDToken()
+            if (idToken) {
+              try {
+                await fetchCall(idToken)
+              } catch (e) {
+                // 追蹤/貼標失敗不能卡住使用者
+              }
+            }
+          }
+          return 'done'
         }
 
         if (clickToken) {
@@ -88,16 +111,17 @@
             return
           }
 
-          await Promise.race([
-            withLiffIdToken((idToken) =>
+          const result = await Promise.race([
+            trackIfPossible((idToken) =>
               fetch('/api/click-targets/' + encodeURIComponent(clickToken) + '/track', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ idToken: idToken }),
               })
             ),
-            new Promise((resolve) => setTimeout(resolve, 1500)),
+            new Promise((resolve) => setTimeout(() => resolve('timeout'), 1500)),
           ])
+          if (result === 'redirecting') return
 
           redirect(targetUrl)
           return
@@ -106,13 +130,14 @@
         // 會員來源追蹤（加入好友）模式：LIFF 若設定「Add friend option: On」，
         // liff.init() 過程中就會自動顯示加好友提示（若使用者尚未是好友）
         statusEl.textContent = '正在為您完成加入流程...'
-        await withLiffIdToken((idToken) =>
+        const result = await trackIfPossible((idToken) =>
           fetch('/api/join-links/' + encodeURIComponent(joinId) + '/track', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ idToken: idToken }),
           })
         )
+        if (result === 'redirecting') return
 
         if (config && config.basicId) {
           redirect('https://line.me/R/oaMessage/' + config.basicId + '/')
