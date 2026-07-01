@@ -74,7 +74,31 @@ memberRoutes.get('/:id', async (c) => {
   )
     .bind(id)
     .all()
-  return c.json({ ...user, tags: tags.results, recent_messages: messages.results })
+  const joinSources = await c.env.DB.prepare(
+    `SELECT je.join_link_id, jl.name, je.joined_at FROM join_events je
+     JOIN join_links jl ON jl.id = je.join_link_id
+     WHERE je.user_id = ? ORDER BY je.joined_at DESC`
+  )
+    .bind(id)
+    .all()
+  return c.json({ ...user, tags: tags.results, recent_messages: messages.results, join_sources: joinSources.results })
+})
+
+memberRoutes.patch('/:id', async (c) => {
+  const id = c.req.param('id')
+  const existing = await c.env.DB.prepare('SELECT id FROM line_users WHERE id = ?').bind(id).first()
+  if (!existing) return c.json({ error: '找不到會員' }, 404)
+  const body = await c.req.json().catch(() => ({}))
+  const { phone, email, birthday, notes } = body as {
+    phone?: string | null
+    email?: string | null
+    birthday?: string | null
+    notes?: string | null
+  }
+  await c.env.DB.prepare('UPDATE line_users SET phone = ?, email = ?, birthday = ?, notes = ? WHERE id = ?')
+    .bind(phone ?? null, email ?? null, birthday ?? null, notes ?? null, id)
+    .run()
+  return c.json({ ok: true })
 })
 
 memberRoutes.post('/:id/tags', async (c) => {

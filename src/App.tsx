@@ -11,6 +11,7 @@ import Keywords from './pages/Keywords'
 import RichMenus from './pages/RichMenus'
 import RichMessages from './pages/RichMessages'
 import Broadcasts from './pages/Broadcasts'
+import Admins from './pages/Admins'
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const { admin, loading } = useAuth()
@@ -38,6 +39,7 @@ export default function App() {
                 <Route path="/rich-menus" element={<RichMenus />} />
                 <Route path="/rich-messages" element={<RichMessages />} />
                 <Route path="/broadcasts" element={<Broadcasts />} />
+                <Route path="/admins" element={<Admins />} />
                 <Route path="*" element={<Navigate to="/" replace />} />
               </Routes>
             </Layout>

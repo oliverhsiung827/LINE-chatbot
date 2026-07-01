@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { api } from '../lib/api'
-import type { LineUser, Tag } from '../../shared/types'
+import type { LineUser, MemberDetail as MemberDetailType, Tag } from '../../shared/types'
 import Modal from '../components/Modal'
 import { formatTaipei } from '../lib/time'
 
@@ -171,6 +171,17 @@ export default function Members() {
   )
 }
 
+function renderMessageContent(m: { direction: string; message_type: string; content: string }): string {
+  // inbound 訊息的 content 是純文字；outbound 訊息的 content 是完整 LINE 訊息物件的 JSON
+  if (m.direction === 'inbound') return m.content
+  try {
+    const parsed = JSON.parse(m.content) as { text?: string; altText?: string }
+    return parsed.text ?? parsed.altText ?? `[${m.message_type}]`
+  } catch {
+    return m.content
+  }
+}
+
 function MemberDetail({
   member,
   allTags,
@@ -182,8 +193,25 @@ function MemberDetail({
   onClose: () => void
   onChanged: () => void
 }) {
+  const [detail, setDetail] = useState<MemberDetailType | null>(null)
   const [tags, setTags] = useState<Tag[]>(member.tags ?? [])
   const [addTagId, setAddTagId] = useState('')
+  const [phone, setPhone] = useState('')
+  const [email, setEmail] = useState('')
+  const [birthday, setBirthday] = useState('')
+  const [notes, setNotes] = useState('')
+  const [savingInfo, setSavingInfo] = useState(false)
+  const [infoSaved, setInfoSaved] = useState(false)
+
+  useEffect(() => {
+    api.get<MemberDetailType>(`/members/${member.id}`).then((d) => {
+      setDetail(d)
+      setPhone(d.phone ?? '')
+      setEmail(d.email ?? '')
+      setBirthday(d.birthday ?? '')
+      setNotes(d.notes ?? '')
+    })
+  }, [member.id])
 
   async function addTag() {
     if (!addTagId) return
@@ -200,9 +228,25 @@ function MemberDetail({
     onChanged()
   }
 
+  async function saveInfo() {
+    setSavingInfo(true)
+    setInfoSaved(false)
+    try {
+      await api.patch(`/members/${member.id}`, {
+        phone: phone || null,
+        email: email || null,
+        birthday: birthday || null,
+        notes: notes || null,
+      })
+      setInfoSaved(true)
+    } finally {
+      setSavingInfo(false)
+    }
+  }
+
   return (
     <Modal title={member.display_name ?? '會員詳情'} onClose={onClose}>
-      <div className="space-y-4 text-sm">
+      <div className="max-h-[75vh] space-y-4 overflow-y-auto text-sm">
         <div className="flex flex-wrap gap-1">
           {tags.map((t) => (
             <span
@@ -232,9 +276,75 @@ function MemberDetail({
             加入
           </button>
         </div>
+
         <p className="text-slate-500">LINE User ID：{member.id}</p>
         <p className="text-slate-500">加入時間：{formatTaipei(member.followed_at)}</p>
         <p className="text-slate-500">最後互動：{formatTaipei(member.last_interaction_at)}</p>
+
+        <div className="rounded-md border border-slate-200 p-3">
+          <p className="mb-2 text-xs font-medium text-slate-600">個人資訊（手動記錄，LINE 不提供）</p>
+          <div className="grid grid-cols-2 gap-2">
+            <label className="block text-xs">
+              <span className="mb-1 block text-slate-500">電話</span>
+              <input value={phone} onChange={(e) => setPhone(e.target.value)} className="w-full rounded border border-slate-300 px-2 py-1" />
+            </label>
+            <label className="block text-xs">
+              <span className="mb-1 block text-slate-500">Email</span>
+              <input value={email} onChange={(e) => setEmail(e.target.value)} className="w-full rounded border border-slate-300 px-2 py-1" />
+            </label>
+            <label className="block text-xs">
+              <span className="mb-1 block text-slate-500">生日</span>
+              <input type="date" value={birthday} onChange={(e) => setBirthday(e.target.value)} className="w-full rounded border border-slate-300 px-2 py-1" />
+            </label>
+          </div>
+          <label className="mt-2 block text-xs">
+            <span className="mb-1 block text-slate-500">備註</span>
+            <textarea value={notes} onChange={(e) => setNotes(e.target.value)} rows={2} className="w-full rounded border border-slate-300 px-2 py-1" />
+          </label>
+          <div className="mt-2 flex items-center gap-2">
+            <button onClick={saveInfo} disabled={savingInfo} className="rounded bg-emerald-600 px-3 py-1 text-xs text-white hover:bg-emerald-700 disabled:opacity-50">
+              {savingInfo ? '儲存中...' : '儲存資料'}
+            </button>
+            {infoSaved && <span className="text-xs text-emerald-600">已儲存</span>}
+          </div>
+        </div>
+
+        {detail && detail.join_sources.length > 0 && (
+          <div className="rounded-md border border-slate-200 p-3">
+            <p className="mb-2 text-xs font-medium text-slate-600">來源追蹤</p>
+            <ul className="space-y-1 text-xs text-slate-600">
+              {detail.join_sources.map((s, i) => (
+                <li key={i}>
+                  {formatTaipei(s.joined_at)} 透過「{s.name}」加入
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+
+        <div className="rounded-md border border-slate-200 p-3">
+          <p className="mb-2 text-xs font-medium text-slate-600">對話訊息歷史（最近 50 筆）</p>
+          {!detail ? (
+            <p className="text-xs text-slate-400">載入中...</p>
+          ) : detail.recent_messages.length === 0 ? (
+            <p className="text-xs text-slate-400">尚無訊息紀錄</p>
+          ) : (
+            <div className="max-h-64 space-y-2 overflow-y-auto">
+              {detail.recent_messages.map((m) => (
+                <div key={m.id} className={`flex ${m.direction === 'outbound' ? 'justify-end' : 'justify-start'}`}>
+                  <div
+                    className={`max-w-[80%] rounded-lg px-2 py-1 text-xs ${
+                      m.direction === 'outbound' ? 'bg-emerald-100 text-emerald-800' : 'bg-slate-100 text-slate-700'
+                    }`}
+                  >
+                    <p className="whitespace-pre-wrap break-words">{renderMessageContent(m)}</p>
+                    <p className="mt-0.5 text-[10px] text-slate-400">{formatTaipei(m.created_at)}</p>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
       </div>
     </Modal>
   )

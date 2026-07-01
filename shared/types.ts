@@ -20,7 +20,31 @@ export interface LineUser {
   is_blocked: number
   last_interaction_at: string | null
   created_at: string
+  phone: string | null
+  email: string | null
+  birthday: string | null
+  notes: string | null
   tags?: Tag[]
+}
+
+export interface MessageLog {
+  id: number
+  user_id: string
+  direction: 'inbound' | 'outbound'
+  message_type: string
+  content: string
+  created_at: string
+}
+
+export interface JoinSource {
+  join_link_id: string
+  name: string
+  joined_at: string
+}
+
+export interface MemberDetail extends LineUser {
+  recent_messages: MessageLog[]
+  join_sources: JoinSource[]
 }
 
 export interface Tag {

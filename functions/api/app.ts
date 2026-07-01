@@ -13,6 +13,7 @@ import { richMessageAssetRoutes } from './routes/richMessageAssets'
 import { clickTargetRoutes } from './routes/clickTargets'
 import { joinLinkRoutes } from './routes/joinLinks'
 import { audienceRoutes } from './routes/audiences'
+import { adminRoutes } from './routes/admins'
 import { createLineClient } from '../lib/line'
 
 export const app = new Hono<{ Bindings: Env; Variables: AuthVariables }>().basePath('/api')
@@ -29,6 +30,7 @@ app.route('/rm-assets', richMessageAssetRoutes)
 app.route('/click-targets', clickTargetRoutes)
 app.route('/join-links', joinLinkRoutes)
 app.route('/audiences', audienceRoutes)
+app.route('/admins', adminRoutes)
 
 app.get('/liff-config', async (c) => {
   const line = createLineClient(c.env.LINE_CHANNEL_ACCESS_TOKEN)
