@@ -23,9 +23,9 @@ clickTargetRoutes.post('/:id/track', async (c) => {
 
   const body = await c.req.json().catch(() => ({}))
   const { idToken } = body as { idToken?: string }
-  if (!idToken || !c.env.LINE_CHANNEL_ID) return c.json({ error: '缺少驗證資訊' }, 400)
+  if (!idToken || !c.env.LIFF_CHANNEL_ID) return c.json({ error: '缺少驗證資訊' }, 400)
 
-  const verified = await verifyLineIdToken(idToken, c.env.LINE_CHANNEL_ID)
+  const verified = await verifyLineIdToken(idToken, c.env.LIFF_CHANNEL_ID)
   if (!verified) return c.json({ error: '驗證失敗' }, 401)
 
   await c.env.DB.prepare('INSERT INTO click_events (click_target_id, user_id) VALUES (?, ?)').bind(id, verified.userId).run()
