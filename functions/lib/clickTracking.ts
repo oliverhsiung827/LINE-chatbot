@@ -1,5 +1,6 @@
 import type { Env } from './env'
 import { newId } from './crypto'
+import { buildLiffUrl } from '../../shared/liff'
 
 // 「開啟連結」按鈕若設定了標籤，會把真正的網址存進 click_targets，
 // 送給 LINE 的網址則改成我們自己的 LIFF 轉址頁，點擊當下才能辨識使用者並貼標籤。
@@ -26,7 +27,7 @@ export async function upsertClickTarget(
 
 export function liffUrl(env: Env, clickTargetId: string): string | null {
   if (!env.LIFF_ID) return null
-  return `https://liff.line.me/${env.LIFF_ID}?t=${clickTargetId}`
+  return buildLiffUrl(env.LIFF_ID, { t: clickTargetId })
 }
 
 interface TrackableUriAction {

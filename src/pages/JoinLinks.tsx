@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import QRCode from 'qrcode'
 import { api } from '../lib/api'
 import type { JoinLink, Tag } from '../../shared/types'
+import { buildLiffUrl } from '../../shared/liff'
 
 export default function JoinLinks() {
   const [links, setLinks] = useState<JoinLink[]>([])
@@ -24,7 +25,7 @@ export default function JoinLinks() {
 
   function urlFor(link: JoinLink) {
     if (!liffId) return null
-    return `https://liff.line.me/${liffId}?j=${link.id}`
+    return buildLiffUrl(liffId, { j: link.id })
   }
 
   useEffect(() => {
