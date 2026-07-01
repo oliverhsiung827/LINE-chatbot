@@ -151,6 +151,7 @@ function ImagemapEditor({
   const [videoFile, setVideoFile] = useState<File | null>(null)
   const [videoPreviewFile, setVideoPreviewFile] = useState<File | null>(null)
   const [hasExistingVideo, setHasExistingVideo] = useState(false)
+  const [hasExistingPreview, setHasExistingPreview] = useState(false)
   const [ctaLabel, setCtaLabel] = useState('')
   const [ctaUri, setCtaUri] = useState('')
   const [saving, setSaving] = useState(false)
@@ -170,6 +171,7 @@ function ImagemapEditor({
         setVideoEnabled(true)
         setVideoArea(c.video.area)
         setHasExistingVideo(!!c.video.video_key)
+        setHasExistingPreview(!!c.video.preview_key)
         if (c.video.external_link) {
           setCtaLabel(c.video.external_link.label)
           setCtaUri(c.video.external_link.linkUri)
@@ -201,6 +203,10 @@ function ImagemapEditor({
       return setError('請完整填寫每個區塊的動作內容')
     }
     if (videoEnabled && (ctaLabel.trim() && !ctaUri.trim())) return setError('CTA 按鈕請同時填寫文字與網址')
+    if (videoEnabled && !videoFile && !hasExistingVideo) return setError('已啟用進階影片訊息，請上傳影片檔案')
+    if (videoEnabled && !videoPreviewFile && !hasExistingPreview) {
+      return setError('已啟用進階影片訊息，請上傳影片預覽圖片（LINE 要求影片訊息必須有預覽圖，否則會顯示「讀取影片失敗」）')
+    }
 
     setSaving(true)
     try {
@@ -234,9 +240,6 @@ function ImagemapEditor({
         const form = new FormData()
         form.append('file', videoPreviewFile)
         await api.upload(`/rich-messages/${rowId}/video-preview`, form)
-      }
-      if (videoEnabled && !videoFile && !hasExistingVideo) {
-        setError('已儲存基本設定，但影片尚未上傳完成，請記得回來上傳影片檔案與預覽圖')
       }
       onSaved()
     } catch (err) {
@@ -414,7 +417,7 @@ function ImagemapEditor({
                 <input type="file" accept="video/mp4" onChange={(e) => setVideoFile(e.target.files?.[0] ?? null)} className="w-full text-xs" />
               </label>
               <label className="block text-xs">
-                <span className="mb-1 block text-slate-500">影片預覽圖片</span>
+                <span className="mb-1 block text-slate-500">影片預覽圖片（LINE 必填，播放前顯示的封面圖）{hasExistingPreview && !videoPreviewFile ? '（已上傳）' : ''}</span>
                 <input type="file" accept="image/*" onChange={(e) => setVideoPreviewFile(e.target.files?.[0] ?? null)} className="w-full text-xs" />
               </label>
               <div className="grid grid-cols-2 gap-2">
