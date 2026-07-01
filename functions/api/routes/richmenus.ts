@@ -33,8 +33,11 @@ function validateAreas(areas: unknown): string | null {
 
 function describeLineError(err: unknown): string {
   if (err instanceof LineApiError) {
+    if (err.status === 413) return '圖片檔案過大，請壓縮至 1MB 以內後重新上傳'
     try {
-      const parsed = JSON.parse(err.body) as { message?: string }
+      const parsed = JSON.parse(err.body) as { message?: string; details?: Array<{ message?: string; property?: string }> }
+      const details = parsed.details?.map((d) => (d.property ? `${d.property}: ${d.message}` : d.message)).filter(Boolean)
+      if (details?.length) return `${parsed.message ?? ''}${details.join('；')}`
       if (parsed.message) return parsed.message
     } catch {
       // ignore parse failure, fall back to raw body
@@ -159,6 +162,15 @@ richMenuRoutes.post('/:id/publish', async (c) => {
   const object = await c.env.MEDIA.get(row.image_key)
   if (!object) return c.json({ error: '找不到選單圖片檔案' }, 404)
 
+  // LINE 的 richMenuAliasId 限制在 32 字元以內，不能直接用含連字號的 UUID（36 碼），
+  // 所以送給 LINE 時一律去除連字號（正好變成 32 碼的 16 進位字串）
+  const toAliasId = (localId: string) => localId.replace(/-/g, '')
+  const lineAreas = areas.map((area: { action: { type: string; richMenuAliasId?: string } }) =>
+    area.action.type === 'richmenuswitch' && area.action.richMenuAliasId
+      ? { ...area, action: { ...area.action, richMenuAliasId: toAliasId(area.action.richMenuAliasId) } }
+      : area
+  )
+
   const line = createLineClient(c.env.LINE_CHANNEL_ACCESS_TOKEN)
   const previousLineRichMenuId = row.line_rich_menu_id
 
@@ -169,7 +181,7 @@ richMenuRoutes.post('/:id/publish', async (c) => {
       selected: false,
       name: row.name,
       chatBarText: row.chat_bar_text,
-      areas,
+      areas: lineAreas,
     })
     richMenuId = created.richMenuId
     await line.uploadRichMenuImage(
@@ -177,9 +189,9 @@ richMenuRoutes.post('/:id/publish', async (c) => {
       await object.arrayBuffer(),
       object.httpMetadata?.contentType ?? 'image/png'
     )
-    // 用本地 UUID 當作 alias，讓其他選單的「切換頁面」按鈕有穩定不變的目標，
+    // 用本地 UUID（去連字號）當作 alias，讓其他選單的「切換頁面」按鈕有穩定不變的目標，
     // 之後即使這個選單重新發佈換了新的 LINE richMenuId，別的選單也不用跟著改
-    await line.upsertRichMenuAlias(id, richMenuId)
+    await line.upsertRichMenuAlias(toAliasId(id), richMenuId)
   } catch (err) {
     return c.json({ error: `發佈到 LINE 失敗：${describeLineError(err)}` }, 502)
   }

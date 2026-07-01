@@ -271,6 +271,11 @@ function RichMenuForm({
   const otherMenus = allMenus.filter((m) => m.id !== menu?.id)
 
   function handleFileChange(f: File | null) {
+    if (f && f.size > 1024 * 1024) {
+      setError('圖片檔案大小需小於 1MB，請先壓縮圖片後再上傳（LINE 圖文選單圖片大小限制）')
+      return
+    }
+    setError(null)
     setFile(f)
     if (f) setPreviewUrl(URL.createObjectURL(f))
   }
