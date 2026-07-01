@@ -8,7 +8,7 @@ pages_build_output_dir = "dist"
 [[d1_databases]]
 binding = "DB"
 database_name = "line-chatbot-db"
-database_id = "REPLACE_WITH_D1_DATABASE_ID"
+database_id = "0ec17963-f351-457a-943d-f48afb061e7a"
 
 # R2 儲存桶，用來放圖文選單圖片、上傳素材等。建立方式：
 #   wrangler r2 bucket create line-chatbot-assets
