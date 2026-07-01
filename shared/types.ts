@@ -149,13 +149,11 @@ export interface RichMenu {
   created_at: string
 }
 
-export type AudienceMatchType = 'any' | 'all'
-
+// 群組之間為 OR，群組內的標籤為 AND。例如 [[A,B],[C]] 代表「(A 且 B) 或 C」
 export interface Audience {
   id: string
   name: string
-  tag_ids: number[]
-  match_type: AudienceMatchType
+  tag_groups: number[][]
   member_count?: number
   created_at: string
 }

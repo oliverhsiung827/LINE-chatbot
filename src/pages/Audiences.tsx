@@ -1,9 +1,13 @@
 import { useEffect, useState } from 'react'
 import { api } from '../lib/api'
-import type { Audience, AudienceMatchType, Tag } from '../../shared/types'
+import type { Audience, Tag } from '../../shared/types'
 import Modal from '../components/Modal'
 
-const MATCH_LABEL: Record<AudienceMatchType, string> = { any: '符合任一標籤即算', all: '需同時符合所有標籤' }
+function describeGroups(groups: number[][], tags: Tag[]) {
+  return groups
+    .map((group) => group.map((id) => tags.find((t) => t.id === id)?.name ?? '?').join(' 且 '))
+    .join('  或  ')
+}
 
 export default function Audiences() {
   const [audiences, setAudiences] = useState<Audience[]>([])
@@ -35,7 +39,8 @@ export default function Audiences() {
         </button>
       </div>
       <p className="mb-6 text-sm text-slate-500">
-        把多個標籤組合成一個可重複使用的群發目標，例如「A 標籤或 B 標籤或 C 標籤的人」算同一群眾，之後在「群發訊息」直接選擇這個群眾即可，不用每次重新勾選標籤。
+        把多個標籤條件組合成一個可重複使用的群發目標。可以用「群組」同時表達且（AND）與或（OR）：群組之間是「或」，群組內的標籤是「且」。
+        例如設定「（A 且 B）或（C）」，就是兩個群組：第一組勾 A、B，第二組勾 C。
       </p>
 
       {error && <p className="mb-4 rounded bg-red-50 px-3 py-2 text-sm text-red-600">{error}</p>}
@@ -44,17 +49,8 @@ export default function Audiences() {
         {audiences.map((a) => (
           <div key={a.id} className="rounded-lg border border-slate-200 bg-white p-4">
             <h4 className="mb-1 font-semibold text-slate-800">{a.name}</h4>
-            <p className="mb-2 text-xs text-slate-500">{MATCH_LABEL[a.match_type]} · 約 {a.member_count ?? 0} 人</p>
-            <div className="mb-3 flex flex-wrap gap-1">
-              {a.tag_ids.map((tagId) => {
-                const tag = tags.find((t) => t.id === tagId)
-                return tag ? (
-                  <span key={tagId} className="rounded-full px-2 py-0.5 text-xs text-white" style={{ backgroundColor: tag.color }}>
-                    {tag.name}
-                  </span>
-                ) : null
-              })}
-            </div>
+            <p className="mb-2 text-xs text-slate-500">約 {a.member_count ?? 0} 人</p>
+            <p className="mb-3 text-xs text-slate-600">{describeGroups(a.tag_groups, tags)}</p>
             <div className="flex gap-2 text-xs">
               <button onClick={() => setEditing(a)} className="rounded border border-slate-300 px-2 py-1 hover:bg-slate-50">
                 編輯
@@ -98,22 +94,34 @@ function AudienceForm({
   onError: (msg: string | null) => void
 }) {
   const [name, setName] = useState(audience?.name ?? '')
-  const [tagIds, setTagIds] = useState<number[]>(audience?.tag_ids ?? [])
-  const [matchType, setMatchType] = useState<AudienceMatchType>(audience?.match_type ?? 'any')
+  const [groups, setGroups] = useState<number[][]>(audience?.tag_groups ?? [[]])
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
-  function toggleTag(id: number) {
-    setTagIds((prev) => (prev.includes(id) ? prev.filter((t) => t !== id) : [...prev, id]))
+  function toggleTag(groupIndex: number, tagId: number) {
+    setGroups((prev) =>
+      prev.map((group, i) =>
+        i !== groupIndex ? group : group.includes(tagId) ? group.filter((t) => t !== tagId) : [...group, tagId]
+      )
+    )
+  }
+
+  function addGroup() {
+    setGroups((prev) => [...prev, []])
+  }
+
+  function removeGroup(index: number) {
+    setGroups((prev) => prev.filter((_, i) => i !== index))
   }
 
   async function save() {
     setError(null)
     if (!name.trim()) return setError('請輸入群眾名稱')
-    if (tagIds.length === 0) return setError('請至少選擇一個標籤')
+    const cleanGroups = groups.filter((g) => g.length > 0)
+    if (cleanGroups.length === 0) return setError('請至少在一個群組內選擇標籤')
     setSaving(true)
     try {
-      const payload = { name, tag_ids: tagIds, match_type: matchType }
+      const payload = { name, tag_groups: cleanGroups }
       if (audience) await api.patch(`/audiences/${audience.id}`, payload)
       else await api.post('/audiences', payload)
       onSaved()
@@ -128,36 +136,48 @@ function AudienceForm({
 
   return (
     <Modal title={audience ? '編輯群眾' : '新增群眾'} onClose={onClose}>
-      <div className="space-y-3 text-sm">
+      <div className="max-h-[70vh] space-y-3 overflow-y-auto text-sm">
         {error && <p className="rounded bg-red-50 px-3 py-2 text-red-600">{error}</p>}
         <label className="block">
           <span className="mb-1 block text-slate-600">群眾名稱</span>
           <input value={name} onChange={(e) => setName(e.target.value)} className="w-full rounded-md border border-slate-300 px-2 py-1.5" />
         </label>
-        <label className="block">
-          <span className="mb-1 block text-slate-600">比對方式</span>
-          <select value={matchType} onChange={(e) => setMatchType(e.target.value as AudienceMatchType)} className="w-full rounded-md border border-slate-300 px-2 py-1.5">
-            <option value="any">符合任一標籤即算（OR）</option>
-            <option value="all">需同時符合所有標籤（AND）</option>
-          </select>
-        </label>
-        <div>
-          <span className="mb-1 block text-slate-600">選擇標籤</span>
-          <div className="flex flex-wrap gap-2">
-            {tags.map((t) => (
-              <button
-                key={t.id}
-                onClick={() => toggleTag(t.id)}
-                className={`rounded-full border px-2 py-0.5 text-xs ${
-                  tagIds.includes(t.id) ? 'border-emerald-600 bg-emerald-50 text-emerald-700' : 'border-slate-300 text-slate-600'
-                }`}
-              >
-                {t.name}
-              </button>
-            ))}
-            {tags.length === 0 && <p className="text-xs text-slate-400">尚無標籤，請先至「標籤管理」建立</p>}
-          </div>
+
+        <div className="space-y-3">
+          {groups.map((group, i) => (
+            <div key={i}>
+              {i > 0 && <div className="mb-2 text-center text-xs font-medium text-slate-400">或</div>}
+              <div className="rounded-md border border-slate-200 p-3">
+                <div className="mb-2 flex items-center justify-between">
+                  <span className="text-xs text-slate-500">群組 {i + 1}（組內標籤需同時符合）</span>
+                  {groups.length > 1 && (
+                    <button onClick={() => removeGroup(i)} className="text-xs text-red-500 hover:underline">
+                      移除群組
+                    </button>
+                  )}
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  {tags.map((t) => (
+                    <button
+                      key={t.id}
+                      onClick={() => toggleTag(i, t.id)}
+                      className={`rounded-full border px-2 py-0.5 text-xs ${
+                        group.includes(t.id) ? 'border-emerald-600 bg-emerald-50 text-emerald-700' : 'border-slate-300 text-slate-600'
+                      }`}
+                    >
+                      {t.name}
+                    </button>
+                  ))}
+                  {tags.length === 0 && <p className="text-xs text-slate-400">尚無標籤，請先至「標籤管理」建立</p>}
+                </div>
+              </div>
+            </div>
+          ))}
         </div>
+        <button onClick={addGroup} className="w-full rounded border border-dashed border-slate-300 py-1.5 text-xs text-slate-500 hover:bg-slate-50">
+          + 新增「或」群組
+        </button>
+
         <div className="flex justify-end gap-2 pt-2">
           <button onClick={onClose} className="rounded-md border border-slate-300 px-3 py-1.5 text-slate-600">
             取消

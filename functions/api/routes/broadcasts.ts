@@ -3,6 +3,7 @@ import type { Env } from '../../lib/env'
 import { requireAuth, type AuthVariables } from '../middleware/auth'
 import { createLineClient, LineApiError, type LineMessage } from '../../lib/line'
 import { buildLineMessage, type RichMessageRow } from '../../lib/richMessage'
+import { resolveAudienceUserIds } from '../../lib/audience'
 
 export const broadcastRoutes = new Hono<{ Bindings: Env; Variables: AuthVariables }>()
 broadcastRoutes.use('*', requireAuth)
@@ -166,12 +167,12 @@ broadcastRoutes.post('/:id/send', async (c) => {
       recipientCount = countRow?.count ?? 0
     } else if (row.target_type === 'audience') {
       if (!row.target_audience_id) throw new Error('未選擇目標群眾')
-      const audience = await c.env.DB.prepare('SELECT tag_ids, match_type FROM audiences WHERE id = ?')
+      const audience = await c.env.DB.prepare('SELECT tag_groups FROM audiences WHERE id = ?')
         .bind(row.target_audience_id)
-        .first<{ tag_ids: string; match_type: 'any' | 'all' }>()
+        .first<{ tag_groups: string }>()
       if (!audience) throw new Error('找不到目標群眾，可能已被刪除')
-      const tagIds = JSON.parse(audience.tag_ids) as number[]
-      const userIds = await resolveTagUserIds(c.env, tagIds, audience.match_type)
+      const tagGroups = JSON.parse(audience.tag_groups) as number[][]
+      const userIds = await resolveAudienceUserIds(c.env, tagGroups)
       for (const batch of chunk(userIds, 500)) {
         await line.multicast(batch, [message])
       }
