@@ -1,7 +1,8 @@
 import { Hono } from 'hono'
 import type { Env } from '../../lib/env'
 import { requireAuth, type AuthVariables } from '../middleware/auth'
-import { createLineClient, type LineMessage } from '../../lib/line'
+import { createLineClient, LineApiError, type LineMessage } from '../../lib/line'
+import { buildLineMessage, type RichMessageRow } from '../../lib/richMessage'
 
 export const broadcastRoutes = new Hono<{ Bindings: Env; Variables: AuthVariables }>()
 broadcastRoutes.use('*', requireAuth)
@@ -29,7 +30,7 @@ function toResponse(row: BroadcastRow) {
   }
 }
 
-function toLineMessage(messageType: string, content: Record<string, unknown>): LineMessage {
+async function toLineMessage(env: Env, origin: string, messageType: string, content: Record<string, unknown>): Promise<LineMessage | null> {
   if (messageType === 'text') return { type: 'text', text: content.text as string }
   if (messageType === 'image')
     return {
@@ -37,7 +38,15 @@ function toLineMessage(messageType: string, content: Record<string, unknown>): L
       originalContentUrl: content.originalContentUrl as string,
       previewImageUrl: content.previewImageUrl as string,
     }
-  if (messageType === 'flex') return { type: 'flex', altText: content.altText as string, contents: content.contents }
+  if (messageType === 'flex' || messageType === 'imagemap') {
+    const richMessageId = content.rich_message_id as string | undefined
+    if (!richMessageId) return null
+    const row = await env.DB.prepare('SELECT id, type, content FROM rich_messages WHERE id = ?')
+      .bind(richMessageId)
+      .first<RichMessageRow>()
+    if (!row) return null
+    return buildLineMessage(row, origin)
+  }
   return { type: 'text', text: JSON.stringify(content) }
 }
 
@@ -45,6 +54,19 @@ function chunk<T>(arr: T[], size: number): T[][] {
   const chunks: T[][] = []
   for (let i = 0; i < arr.length; i += size) chunks.push(arr.slice(i, i + size))
   return chunks
+}
+
+function describeLineError(err: unknown): string {
+  if (err instanceof LineApiError) {
+    try {
+      const parsed = JSON.parse(err.body) as { message?: string }
+      if (parsed.message) return parsed.message
+    } catch {
+      // ignore parse failure, fall back to raw body
+    }
+    return err.body || err.message
+  }
+  return err instanceof Error ? err.message : '未知錯誤'
 }
 
 broadcastRoutes.get('/', async (c) => {
@@ -99,7 +121,12 @@ broadcastRoutes.post('/:id/send', async (c) => {
   await c.env.DB.prepare("UPDATE broadcasts SET status = 'sending' WHERE id = ?").bind(id).run()
 
   const line = createLineClient(c.env.LINE_CHANNEL_ACCESS_TOKEN)
-  const message = toLineMessage(row.message_type, JSON.parse(row.message_content))
+  const origin = new URL(c.req.url).origin
+  const message = await toLineMessage(c.env, origin, row.message_type, JSON.parse(row.message_content))
+  if (!message) {
+    await c.env.DB.prepare("UPDATE broadcasts SET status = 'failed' WHERE id = ?").bind(id).run()
+    return c.json({ error: '找不到對應的進階訊息素材，請確認素材是否已被刪除' }, 400)
+  }
 
   try {
     let recipientCount = 0
@@ -135,6 +162,6 @@ broadcastRoutes.post('/:id/send', async (c) => {
     return c.json({ ok: true, recipient_count: recipientCount })
   } catch (err) {
     await c.env.DB.prepare("UPDATE broadcasts SET status = 'failed' WHERE id = ?").bind(id).run()
-    return c.json({ error: err instanceof Error ? err.message : '發送失敗' }, 500)
+    return c.json({ error: `發送失敗：${describeLineError(err)}` }, 502)
   }
 })

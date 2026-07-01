@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { api } from '../lib/api'
-import type { Broadcast, ReplyType, Tag } from '../../shared/types'
+import type { Broadcast, ReplyType, RichMessage, Tag } from '../../shared/types'
 import Modal from '../components/Modal'
 
 const STATUS_LABEL: Record<string, string> = { draft: '草稿', scheduled: '排程中', sending: '發送中', sent: '已發送', failed: '失敗' }
@@ -109,10 +109,18 @@ function BroadcastForm({ tags, onClose, onSaved }: { tags: Tag[]; onClose: () =>
   const [messageType, setMessageType] = useState<ReplyType>('text')
   const [text, setText] = useState('')
   const [imageUrl, setImageUrl] = useState('')
+  const [richMessageId, setRichMessageId] = useState('')
+  const [imagemaps, setImagemaps] = useState<RichMessage[]>([])
+  const [carousels, setCarousels] = useState<RichMessage[]>([])
   const [targetType, setTargetType] = useState<'all' | 'tag'>('all')
   const [selectedTags, setSelectedTags] = useState<number[]>([])
   const [error, setError] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
+
+  useEffect(() => {
+    api.get<RichMessage[]>('/rich-messages?type=imagemap').then(setImagemaps)
+    api.get<RichMessage[]>('/rich-messages?type=flex_carousel').then(setCarousels)
+  }, [])
 
   function toggleTag(id: number) {
     setSelectedTags((prev) => (prev.includes(id) ? prev.filter((t) => t !== id) : [...prev, id]))
@@ -123,9 +131,15 @@ function BroadcastForm({ tags, onClose, onSaved }: { tags: Tag[]; onClose: () =>
     if (!title.trim()) return setError('請輸入標題')
     if (messageType === 'text' && !text.trim()) return setError('請輸入訊息內容')
     if (messageType === 'image' && !imageUrl.trim()) return setError('請輸入圖片網址')
+    if ((messageType === 'imagemap' || messageType === 'flex') && !richMessageId) return setError('請選擇要發送的素材')
     if (targetType === 'tag' && selectedTags.length === 0) return setError('請選擇至少一個標籤')
 
-    const message_content = messageType === 'text' ? { text } : { originalContentUrl: imageUrl, previewImageUrl: imageUrl }
+    const message_content =
+      messageType === 'text'
+        ? { text }
+        : messageType === 'image'
+          ? { originalContentUrl: imageUrl, previewImageUrl: imageUrl }
+          : { rich_message_id: richMessageId }
 
     setSaving(true)
     try {
@@ -155,6 +169,8 @@ function BroadcastForm({ tags, onClose, onSaved }: { tags: Tag[]; onClose: () =>
           <select value={messageType} onChange={(e) => setMessageType(e.target.value as ReplyType)} className="w-full rounded-md border border-slate-300 px-2 py-1.5">
             <option value="text">文字</option>
             <option value="image">圖片</option>
+            <option value="imagemap">圖文／影片訊息</option>
+            <option value="flex">多頁訊息</option>
           </select>
         </label>
         {messageType === 'text' && (
@@ -167,6 +183,22 @@ function BroadcastForm({ tags, onClose, onSaved }: { tags: Tag[]; onClose: () =>
           <label className="block">
             <span className="mb-1 block text-slate-600">圖片網址（https）</span>
             <input value={imageUrl} onChange={(e) => setImageUrl(e.target.value)} className="w-full rounded-md border border-slate-300 px-2 py-1.5" />
+          </label>
+        )}
+        {(messageType === 'imagemap' || messageType === 'flex') && (
+          <label className="block">
+            <span className="mb-1 block text-slate-600">選擇素材（在「進階訊息素材庫」建立）</span>
+            <select value={richMessageId} onChange={(e) => setRichMessageId(e.target.value)} className="w-full rounded-md border border-slate-300 px-2 py-1.5">
+              <option value="">請選擇...</option>
+              {(messageType === 'imagemap' ? imagemaps : carousels).map((m) => (
+                <option key={m.id} value={m.id}>
+                  {m.name}
+                </option>
+              ))}
+            </select>
+            {(messageType === 'imagemap' ? imagemaps : carousels).length === 0 && (
+              <p className="mt-1 text-xs text-amber-600">尚未建立任何素材，請先到「進階訊息素材庫」建立。</p>
+            )}
           </label>
         )}
         <label className="block">

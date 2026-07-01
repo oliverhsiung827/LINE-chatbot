@@ -1,11 +1,48 @@
 import { Hono } from 'hono'
 import type { Env } from '../../lib/env'
 import { requireAuth, type AuthVariables } from '../middleware/auth'
-import { createLineClient } from '../../lib/line'
+import { createLineClient, LineApiError } from '../../lib/line'
 import { newId } from '../../lib/crypto'
 
 export const richMenuRoutes = new Hono<{ Bindings: Env; Variables: AuthVariables }>()
 richMenuRoutes.use('*', requireAuth)
+
+interface RichMenuAreaAction {
+  type?: string
+  text?: string
+  uri?: string
+  data?: string
+  richMenuAliasId?: string
+}
+
+function validateAreas(areas: unknown): string | null {
+  if (!Array.isArray(areas)) return '區塊格式錯誤'
+  for (const area of areas) {
+    if (typeof area !== 'object' || area === null) return '區塊格式錯誤'
+    const a = area as { bounds?: unknown; action?: RichMenuAreaAction }
+    if (!a.bounds) return '區塊缺少座標設定'
+    const action = a.action
+    if (!action?.type) return '區塊缺少動作設定'
+    if (action.type === 'message' && !action.text?.trim()) return '「傳送文字訊息」動作請填寫要傳送的文字'
+    if (action.type === 'uri' && !action.uri?.trim()) return '「開啟連結」動作請填寫網址'
+    if (action.type === 'postback' && !action.data?.trim()) return '「Postback」動作請填寫 data'
+    if (action.type === 'richmenuswitch' && !action.richMenuAliasId?.trim()) return '「切換選單頁面」動作請選擇要切換到的選單'
+  }
+  return null
+}
+
+function describeLineError(err: unknown): string {
+  if (err instanceof LineApiError) {
+    try {
+      const parsed = JSON.parse(err.body) as { message?: string }
+      if (parsed.message) return parsed.message
+    } catch {
+      // ignore parse failure, fall back to raw body
+    }
+    return err.body || err.message
+  }
+  return err instanceof Error ? err.message : '未知錯誤'
+}
 
 interface RichMenuRow {
   id: string
@@ -52,6 +89,10 @@ richMenuRoutes.post('/', async (c) => {
     areas?: unknown[]
   }
   if (!name?.trim()) return c.json({ error: '請輸入選單名稱' }, 400)
+  if (areas?.length) {
+    const err = validateAreas(areas)
+    if (err) return c.json({ error: err }, 400)
+  }
   const id = newId()
   await c.env.DB.prepare(
     `INSERT INTO rich_menus (id, name, chat_bar_text, size_width, size_height, areas, status)
@@ -68,6 +109,10 @@ richMenuRoutes.patch('/:id', async (c) => {
   if (!existing) return c.json({ error: '找不到選單' }, 404)
   const body = await c.req.json().catch(() => ({}))
   const { name, chatBarText, areas } = body as { name?: string; chatBarText?: string; areas?: unknown[] }
+  if (areas?.length) {
+    const err = validateAreas(areas)
+    if (err) return c.json({ error: err }, 400)
+  }
   await c.env.DB.prepare(
     `UPDATE rich_menus SET name = COALESCE(?, name), chat_bar_text = COALESCE(?, chat_bar_text), areas = COALESCE(?, areas) WHERE id = ?`
   )
@@ -109,22 +154,39 @@ richMenuRoutes.post('/:id/publish', async (c) => {
   if (!row) return c.json({ error: '找不到選單' }, 404)
   if (!row.image_key) return c.json({ error: '請先上傳選單圖片' }, 400)
   const areas = JSON.parse(row.areas)
+  const areaError = validateAreas(areas)
+  if (areaError) return c.json({ error: areaError }, 400)
   const object = await c.env.MEDIA.get(row.image_key)
   if (!object) return c.json({ error: '找不到選單圖片檔案' }, 404)
 
   const line = createLineClient(c.env.LINE_CHANNEL_ACCESS_TOKEN)
-  const { richMenuId } = await line.createRichMenu({
-    size: { width: row.size_width, height: row.size_height },
-    selected: false,
-    name: row.name,
-    chatBarText: row.chat_bar_text,
-    areas,
-  })
-  await line.uploadRichMenuImage(
-    richMenuId,
-    await object.arrayBuffer(),
-    object.httpMetadata?.contentType ?? 'image/png'
-  )
+  const previousLineRichMenuId = row.line_rich_menu_id
+
+  let richMenuId: string
+  try {
+    const created = await line.createRichMenu({
+      size: { width: row.size_width, height: row.size_height },
+      selected: false,
+      name: row.name,
+      chatBarText: row.chat_bar_text,
+      areas,
+    })
+    richMenuId = created.richMenuId
+    await line.uploadRichMenuImage(
+      richMenuId,
+      await object.arrayBuffer(),
+      object.httpMetadata?.contentType ?? 'image/png'
+    )
+    // 用本地 UUID 當作 alias，讓其他選單的「切換頁面」按鈕有穩定不變的目標，
+    // 之後即使這個選單重新發佈換了新的 LINE richMenuId，別的選單也不用跟著改
+    await line.upsertRichMenuAlias(id, richMenuId)
+  } catch (err) {
+    return c.json({ error: `發佈到 LINE 失敗：${describeLineError(err)}` }, 502)
+  }
+
+  if (previousLineRichMenuId && previousLineRichMenuId !== richMenuId) {
+    await line.deleteRichMenu(previousLineRichMenuId).catch(() => {})
+  }
 
   await c.env.DB.prepare("UPDATE rich_menus SET line_rich_menu_id = ?, status = 'published' WHERE id = ?")
     .bind(richMenuId, id)
@@ -139,7 +201,11 @@ richMenuRoutes.post('/:id/set-default', async (c) => {
   if (!row.line_rich_menu_id) return c.json({ error: '請先發佈選單' }, 400)
 
   const line = createLineClient(c.env.LINE_CHANNEL_ACCESS_TOKEN)
-  await line.setDefaultRichMenu(row.line_rich_menu_id)
+  try {
+    await line.setDefaultRichMenu(row.line_rich_menu_id)
+  } catch (err) {
+    return c.json({ error: `設為預設失敗：${describeLineError(err)}` }, 502)
+  }
 
   await c.env.DB.batch([
     c.env.DB.prepare('UPDATE rich_menus SET is_default = 0'),

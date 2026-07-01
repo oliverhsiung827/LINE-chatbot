@@ -6,6 +6,7 @@ const NAV_ITEMS = [
   { to: '/members', label: '會員管理' },
   { to: '/keywords', label: '關鍵字自動回覆' },
   { to: '/rich-menus', label: '圖文選單' },
+  { to: '/rich-messages', label: '進階訊息素材庫' },
   { to: '/broadcasts', label: '群發訊息' },
 ]
 

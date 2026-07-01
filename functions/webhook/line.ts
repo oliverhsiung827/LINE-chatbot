@@ -1,12 +1,13 @@
 import type { Env } from '../lib/env'
 import { verifyLineSignature } from '../lib/crypto'
 import { createLineClient, type LineMessage, type LineWebhookEvent } from '../lib/line'
+import { buildLineMessage, type RichMessageRow } from '../lib/richMessage'
 
 interface KeywordRuleRow {
   id: number
   match_type: 'exact' | 'contains' | 'regex'
   keywords: string
-  reply_type: 'text' | 'image' | 'flex' | 'sticker'
+  reply_type: 'text' | 'image' | 'flex' | 'sticker' | 'imagemap'
   reply_content: string
 }
 
@@ -26,7 +27,7 @@ function matchesRule(text: string, rule: KeywordRuleRow): boolean {
   return false
 }
 
-function ruleToLineMessage(rule: KeywordRuleRow): LineMessage {
+async function ruleToLineMessage(env: Env, origin: string, rule: KeywordRuleRow): Promise<LineMessage | null> {
   const content = JSON.parse(rule.reply_content) as Record<string, unknown>
   if (rule.reply_type === 'text') return { type: 'text', text: content.text as string }
   if (rule.reply_type === 'image')
@@ -35,7 +36,15 @@ function ruleToLineMessage(rule: KeywordRuleRow): LineMessage {
       originalContentUrl: content.originalContentUrl as string,
       previewImageUrl: content.previewImageUrl as string,
     }
-  if (rule.reply_type === 'flex') return { type: 'flex', altText: content.altText as string, contents: content.contents }
+  if (rule.reply_type === 'flex' || rule.reply_type === 'imagemap') {
+    const richMessageId = content.rich_message_id as string | undefined
+    if (!richMessageId) return null
+    const row = await env.DB.prepare('SELECT id, type, content FROM rich_messages WHERE id = ?')
+      .bind(richMessageId)
+      .first<RichMessageRow>()
+    if (!row) return null
+    return buildLineMessage(row, origin)
+  }
   return { type: 'sticker', packageId: content.packageId as string, stickerId: content.stickerId as string }
 }
 
@@ -81,7 +90,7 @@ async function logMessage(env: Env, userId: string, direction: 'inbound' | 'outb
     .run()
 }
 
-async function handleEvent(env: Env, event: LineWebhookEvent) {
+async function handleEvent(env: Env, origin: string, event: LineWebhookEvent) {
   const userId = event.source.userId
   if (!userId) return
 
@@ -105,10 +114,12 @@ async function handleEvent(env: Env, event: LineWebhookEvent) {
 
     const matched = rules.results.find((rule) => matchesRule(text, rule))
     if (matched) {
-      const message = ruleToLineMessage(matched)
-      const line = createLineClient(env.LINE_CHANNEL_ACCESS_TOKEN)
-      await line.replyMessage(event.replyToken, [message])
-      await logMessage(env, userId, 'outbound', matched.reply_type, JSON.stringify(message))
+      const message = await ruleToLineMessage(env, origin, matched)
+      if (message) {
+        const line = createLineClient(env.LINE_CHANNEL_ACCESS_TOKEN)
+        await line.replyMessage(event.replyToken, [message])
+        await logMessage(env, userId, 'outbound', matched.reply_type, JSON.stringify(message))
+      }
     }
     return
   }
@@ -126,8 +137,9 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
     return new Response('Invalid signature', { status: 401 })
   }
 
+  const origin = new URL(request.url).origin
   const body = JSON.parse(rawBody) as { events: LineWebhookEvent[] }
-  await Promise.all(body.events.map((event) => handleEvent(env, event)))
+  await Promise.all(body.events.map((event) => handleEvent(env, origin, event)))
 
   return new Response('OK', { status: 200 })
 }

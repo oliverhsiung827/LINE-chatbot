@@ -3,11 +3,29 @@
 const API_BASE = 'https://api.line.me/v2/bot'
 const DATA_API_BASE = 'https://api-data.line.me/v2/bot'
 
+type ImagemapBounds = { x: number; y: number; width: number; height: number }
+
 export type LineMessage =
   | { type: 'text'; text: string }
   | { type: 'image'; originalContentUrl: string; previewImageUrl: string }
   | { type: 'sticker'; packageId: string; stickerId: string }
   | { type: 'flex'; altText: string; contents: unknown }
+  | {
+      type: 'imagemap'
+      baseUrl: string
+      altText: string
+      baseSize: { width: number; height: number }
+      video?: {
+        originalContentUrl: string
+        previewImageUrl: string
+        area: ImagemapBounds
+        externalLink?: { linkUri: string; label: string }
+      }
+      actions: Array<
+        | { type: 'uri'; linkUri: string; area: ImagemapBounds; label?: string }
+        | { type: 'message'; text: string; area: ImagemapBounds; label?: string }
+      >
+    }
 
 export interface LineProfile {
   userId: string
@@ -25,7 +43,7 @@ export interface LineWebhookEvent {
   postback?: { data: string }
 }
 
-class LineApiError extends Error {
+export class LineApiError extends Error {
   constructor(
     public status: number,
     public body: string
@@ -122,6 +140,36 @@ export function createLineClient(channelAccessToken: string) {
 
     async linkRichMenuToUser(userId: string, richMenuId: string) {
       await callLineApi(channelAccessToken, `/user/${userId}/richmenu/${richMenuId}`, { method: 'POST' })
+    },
+
+    // Rich Menu Alias：用來讓「切換頁面」按鈕(richmenuswitch)有一個穩定不變的目標 ID，
+    // 這樣即使選單重新發佈（LINE richMenuId 會變），其他選單的切換按鈕也不用跟著改。
+    async createRichMenuAlias(richMenuAliasId: string, richMenuId: string) {
+      await callLineApi(channelAccessToken, '/richmenu/alias', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ richMenuId, richMenuAliasId }),
+      })
+    },
+
+    async updateRichMenuAlias(richMenuAliasId: string, richMenuId: string) {
+      await callLineApi(channelAccessToken, `/richmenu/alias/${richMenuAliasId}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ richMenuId }),
+      })
+    },
+
+    async upsertRichMenuAlias(richMenuAliasId: string, richMenuId: string) {
+      try {
+        await this.createRichMenuAlias(richMenuAliasId, richMenuId)
+      } catch (err) {
+        if (err instanceof LineApiError && err.status === 400) {
+          await this.updateRichMenuAlias(richMenuAliasId, richMenuId)
+        } else {
+          throw err
+        }
+      }
     },
   }
 }

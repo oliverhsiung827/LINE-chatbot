@@ -6,6 +6,7 @@ import Dashboard from './pages/Dashboard'
 import Members from './pages/Members'
 import Keywords from './pages/Keywords'
 import RichMenus from './pages/RichMenus'
+import RichMessages from './pages/RichMessages'
 import Broadcasts from './pages/Broadcasts'
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
@@ -29,6 +30,7 @@ export default function App() {
                 <Route path="/members" element={<Members />} />
                 <Route path="/keywords" element={<Keywords />} />
                 <Route path="/rich-menus" element={<RichMenus />} />
+                <Route path="/rich-messages" element={<RichMessages />} />
                 <Route path="/broadcasts" element={<Broadcasts />} />
                 <Route path="*" element={<Navigate to="/" replace />} />
               </Routes>

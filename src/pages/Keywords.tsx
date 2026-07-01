@@ -1,10 +1,10 @@
 import { useEffect, useState } from 'react'
 import { api } from '../lib/api'
-import type { KeywordRule, MatchType, ReplyType } from '../../shared/types'
+import type { KeywordRule, MatchType, ReplyType, RichMessage, RichMessageRefContent } from '../../shared/types'
 import Modal from '../components/Modal'
 
 const MATCH_LABEL: Record<MatchType, string> = { exact: '完全符合', contains: '包含關鍵字', regex: '正規表示式' }
-const REPLY_LABEL: Record<ReplyType, string> = { text: '文字', image: '圖片', flex: 'Flex 訊息', sticker: '貼圖' }
+const REPLY_LABEL: Record<ReplyType, string> = { text: '文字', image: '圖片', imagemap: '圖文／影片訊息', flex: '多頁訊息', sticker: '貼圖' }
 
 export default function Keywords() {
   const [rules, setRules] = useState<KeywordRule[]>([])
@@ -106,8 +106,18 @@ function KeywordForm({ rule, onClose, onSaved }: { rule: KeywordRule | null; onC
   const [imageUrl, setImageUrl] = useState(
     rule?.reply_type === 'image' ? (rule.reply_content as { originalContentUrl: string }).originalContentUrl : ''
   )
+  const [richMessageId, setRichMessageId] = useState(
+    rule?.reply_type === 'imagemap' || rule?.reply_type === 'flex' ? (rule.reply_content as RichMessageRefContent).rich_message_id : ''
+  )
+  const [imagemaps, setImagemaps] = useState<RichMessage[]>([])
+  const [carousels, setCarousels] = useState<RichMessage[]>([])
   const [priority, setPriority] = useState(rule?.priority ?? 0)
   const [error, setError] = useState<string | null>(null)
+
+  useEffect(() => {
+    api.get<RichMessage[]>('/rich-messages?type=imagemap').then(setImagemaps)
+    api.get<RichMessage[]>('/rich-messages?type=flex_carousel').then(setCarousels)
+  }, [])
 
   async function save() {
     setError(null)
@@ -119,9 +129,14 @@ function KeywordForm({ rule, onClose, onSaved }: { rule: KeywordRule | null; onC
       setError('請填寫名稱與至少一個關鍵字')
       return
     }
+    if ((replyType === 'imagemap' || replyType === 'flex') && !richMessageId) {
+      setError('請選擇要發送的素材')
+      return
+    }
     let reply_content: unknown
     if (replyType === 'text') reply_content = { text }
     else if (replyType === 'image') reply_content = { originalContentUrl: imageUrl, previewImageUrl: imageUrl }
+    else if (replyType === 'imagemap' || replyType === 'flex') reply_content = { rich_message_id: richMessageId }
     else reply_content = { text }
 
     const payload = { name, match_type: matchType, keywords: keywordList, reply_type: replyType, reply_content, priority }
@@ -157,6 +172,8 @@ function KeywordForm({ rule, onClose, onSaved }: { rule: KeywordRule | null; onC
           <select value={replyType} onChange={(e) => setReplyType(e.target.value as ReplyType)} className="w-full rounded-md border border-slate-300 px-2 py-1.5">
             <option value="text">文字</option>
             <option value="image">圖片</option>
+            <option value="imagemap">圖文／影片訊息</option>
+            <option value="flex">多頁訊息</option>
           </select>
         </label>
         {replyType === 'text' && (
@@ -169,6 +186,22 @@ function KeywordForm({ rule, onClose, onSaved }: { rule: KeywordRule | null; onC
           <label className="block">
             <span className="mb-1 block text-slate-600">圖片網址（https，正方形建議 1024x1024）</span>
             <input value={imageUrl} onChange={(e) => setImageUrl(e.target.value)} className="w-full rounded-md border border-slate-300 px-2 py-1.5" />
+          </label>
+        )}
+        {(replyType === 'imagemap' || replyType === 'flex') && (
+          <label className="block">
+            <span className="mb-1 block text-slate-600">選擇素材（在「進階訊息素材庫」建立）</span>
+            <select value={richMessageId} onChange={(e) => setRichMessageId(e.target.value)} className="w-full rounded-md border border-slate-300 px-2 py-1.5">
+              <option value="">請選擇...</option>
+              {(replyType === 'imagemap' ? imagemaps : carousels).map((m) => (
+                <option key={m.id} value={m.id}>
+                  {m.name}
+                </option>
+              ))}
+            </select>
+            {(replyType === 'imagemap' ? imagemaps : carousels).length === 0 && (
+              <p className="mt-1 text-xs text-amber-600">尚未建立任何素材，請先到「進階訊息素材庫」建立。</p>
+            )}
           </label>
         )}
         <label className="block">
